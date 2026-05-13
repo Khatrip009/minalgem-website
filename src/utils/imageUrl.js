@@ -1,4 +1,4 @@
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'http://localhost:4500';
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
 
 export function getImageUrl(url, fallback = '/placeholder.jpg') {
   if (!url || typeof url !== 'string') return fallback;
