@@ -4,7 +4,7 @@ import { getProducts } from '../api/products';
 import { getCategories } from '../api/categories';
 import { useCurrency } from '../context/CurrencyContext';
 
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'http://localhost:4500';
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
 
 export default function Shop() {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();

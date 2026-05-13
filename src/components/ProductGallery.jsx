@@ -5,7 +5,7 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'http://localhost:4500';
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
 
 function getFullUrl(url) {
   if (!url) return null;
