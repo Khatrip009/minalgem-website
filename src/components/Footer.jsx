@@ -140,11 +140,79 @@ export default function Footer() {
             {/* Quick Links */}
             <div>
               <h3 className="font-serif text-xl text-gold-600 mb-6 tracking-wide">Explore</h3>
+              
               <ul className="space-y-4">
-                <li><Link to="/shop" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Shop</Link></li>
-                <li><Link to="/about" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">About</Link></li>
-                <li><Link to="/education/diamond" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Diamond Guide</Link></li>
-                <li><Link to="/education/gold" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Gold Guide</Link></li>
+                <li>
+                  <Link
+                    to="/shop"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Shop
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/about"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    About
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/education/diamond"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Diamond Guide
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/education/gold"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Gold Guide
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/privacy-policy"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Privacy Policy
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/refund-policy"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Refund Policy
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/shipping-policy"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Shipping Policy
+                  </Link>
+                </li>
+
+                <li>
+                  <Link
+                    to="/terms-and-conditions"
+                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
+                  >
+                    Terms & Conditions
+                  </Link>
+                </li>
               </ul>
             </div>
 
