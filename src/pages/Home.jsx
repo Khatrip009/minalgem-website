@@ -14,7 +14,7 @@ const FALLBACK_HERO_IMAGES = [
   '/images/hero/hero4.jpg',
 ];
 
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'http://localhost:4500';
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
 
 export default function Home() {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();
