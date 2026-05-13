@@ -4,5 +4,5 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/minalgems-jewellery/',   // 👈 replace with your actual repo name
+  base: '/',   // 👈 replace with your actual repo name
 })
