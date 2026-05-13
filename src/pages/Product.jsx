@@ -57,7 +57,7 @@ export default function Product() {
     setCartMessage('');
     try {
       const response = await addToCart(product.id, 1);
-      console.log('Add to cart response:', response); // temporary log
+      console.log('Add to cart response:', response);
       setCartMessage('Added to cart ✓');
       setTimeout(() => setCartMessage(''), 3000);
     } catch (err) {
@@ -131,18 +131,24 @@ export default function Product() {
       : null;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-      <div className="grid md:grid-cols-2 gap-12">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
+      <div className="grid md:grid-cols-2 gap-8 md:gap-12">
         {/* Left: Gallery */}
         <ProductGallery assets={product.assets} />
 
         {/* Right: Product Info */}
         <div className="flex flex-col justify-center">
-          <h1 className="font-serif text-4xl md:text-5xl text-gold-600 mb-4">{product.title}</h1>
-          <p className="text-charcoal leading-relaxed text-lg">{product.short_description}</p>
+          {/* Title – scales gracefully */}
+          <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-gold-600 mb-4">
+            {product.title}
+          </h1>
+          {/* Short description – slight downscale on mobile */}
+          <p className="text-charcoal leading-relaxed text-base sm:text-lg">
+            {product.short_description}
+          </p>
 
-          {/* Price (international) */}
-          <div className="mt-6 text-3xl text-gold-600 font-semibold">
+          {/* Price */}
+          <div className="mt-6 text-2xl sm:text-3xl text-gold-600 font-semibold">
             {formatPrice(product.price)}
           </div>
 
@@ -186,7 +192,7 @@ export default function Product() {
                   Notify Me When Available
                 </button>
                 {showAlertForm && !user && (
-                  <div className="mt-4 flex gap-2 max-w-md">
+                  <div className="mt-4 flex flex-col sm:flex-row gap-2 max-w-md">
                     <input
                       type="email"
                       value={alertEmail}
@@ -194,7 +200,10 @@ export default function Product() {
                       placeholder="Your email"
                       className="border border-gold-300 px-4 py-2 flex-1"
                     />
-                    <button onClick={handleStockAlert} className="bg-gold-500 text-white px-6 py-2 uppercase text-sm tracking-wider">
+                    <button
+                      onClick={handleStockAlert}
+                      className="bg-gold-500 text-white px-6 py-2 uppercase text-sm tracking-wider"
+                    >
                       Send
                     </button>
                   </div>
@@ -206,17 +215,21 @@ export default function Product() {
           {/* Product Description */}
           {product.description && (
             <div className="mt-10">
-              <h3 className="font-serif text-xl text-gold-600 mb-2">Description</h3>
-              <div className="text-charcoal leading-relaxed whitespace-pre-line">{product.description}</div>
+              <h3 className="font-serif text-lg sm:text-xl text-gold-600 mb-2">Description</h3>
+              <div className="text-charcoal leading-relaxed whitespace-pre-line text-sm sm:text-base">
+                {product.description}
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* ========== SPECIFICATIONS / DETAILS ========== */}
-      <div className="mt-16 border-t border-gold-200 pt-16">
-        <h2 className="font-serif text-3xl text-gold-600 mb-8 tracking-widest">Product Details</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
+      <div className="mt-16 border-t border-gold-200 pt-12 sm:pt-16">
+        <h2 className="font-serif text-2xl sm:text-3xl text-gold-600 mb-8 tracking-widest">
+          Product Details
+        </h2>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
           {material && (
             <div>
               <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Material</p>
@@ -279,17 +292,17 @@ export default function Product() {
           )}
         </div>
 
-        {/* Diamond details if any */}
+        {/* Diamond details – horizontal scroll on small screens */}
         {product.diamond_pcs > 0 && (
           <div className="mt-10">
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
               <p className="text-xs uppercase tracking-widest text-gold-500">Diamonds</p>
               <span className="text-charcoal text-sm">
                 {product.diamond_pcs} pcs – {Number(product.diamond_carat).toFixed(2)} carats total
               </span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border border-gold-100">
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm border border-gold-100 min-w-[500px]">
                 <thead>
                   <tr className="bg-gold-50 text-left text-gold-700">
                     <th className="px-4 py-2 font-medium">Shape</th>
@@ -320,7 +333,9 @@ export default function Product() {
 
       {/* ========== REVIEWS ========== */}
       <div className="mt-20">
-        <h2 className="font-serif text-3xl text-gold-600 mb-8 tracking-widest">Customer Reviews</h2>
+        <h2 className="font-serif text-2xl sm:text-3xl text-gold-600 mb-8 tracking-widest">
+          Customer Reviews
+        </h2>
         {ratingSummary && (
           <div className="flex items-center gap-3 mb-8">
             <span className="text-4xl text-gold-600">★ {Number(ratingSummary.avg_rating).toFixed(1)}</span>
@@ -338,7 +353,7 @@ export default function Product() {
                   <span className="text-gold-500">★ {r.rating}</span>
                 </div>
                 {r.title && <h4 className="font-medium text-charcoal">{r.title}</h4>}
-                <p className="text-charcoal mt-1">{r.body}</p>
+                <p className="text-charcoal mt-1 text-sm sm:text-base">{r.body}</p>
                 <p className="text-xs text-gray-400 mt-2">{new Date(r.created_at).toLocaleDateString()}</p>
               </div>
             ))
