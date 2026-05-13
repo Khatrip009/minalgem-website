@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { GoldRateProvider } from './context/GoldRateContext';
@@ -27,8 +27,9 @@ function App() {
     <AuthProvider>
       <CurrencyProvider>
         <GoldRateProvider>
-          <HashRouter>
-            <ScrollToTop/>
+          <BrowserRouter>
+            <ScrollToTop />
+
             <Routes>
               <Route element={<Layout />}>
                 {/* Public routes */}
@@ -51,6 +52,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+
                 <Route
                   path="/checkout"
                   element={
@@ -59,6 +61,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+
                 <Route
                   path="/orders"
                   element={
@@ -67,6 +70,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+
                 <Route
                   path="/orders/:id"
                   element={
@@ -75,6 +79,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+
                 <Route
                   path="/order-success/:id"
                   element={
@@ -83,6 +88,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
+
                 <Route
                   path="/profile"
                   element={
@@ -92,10 +98,11 @@ function App() {
                   }
                 />
               </Route>
+
+              {/* 404 Route */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-            
-          </HashRouter>
+          </BrowserRouter>
         </GoldRateProvider>
       </CurrencyProvider>
     </AuthProvider>
