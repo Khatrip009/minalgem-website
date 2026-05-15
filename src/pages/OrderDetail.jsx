@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { getOrder, getOrderTimeline } from '../api/orders.api';
 import { getImageUrl } from '../utils/imageUrl';
 import { useCurrency } from '../context/CurrencyContext';
+import { Truck, Package, MapPin, Calendar } from 'lucide-react';
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -102,6 +103,9 @@ export default function OrderDetail() {
     return 'bg-cream text-gold-600 border-gold-200';
   };
 
+  // Shipments from the backend (now included in order object)
+  const shipments = order.shipments || [];
+
   return (
     <div className="min-h-screen bg-cream py-16">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
@@ -136,6 +140,60 @@ export default function OrderDetail() {
             </span>
           )}
         </div>
+
+        {/* Shipments (NEW) */}
+        {shipments.length > 0 && (
+          <div className="bg-white border border-gold-200 p-6 rounded-sm shadow-sm">
+            <h2 className="font-serif text-2xl text-gold-600 mb-6 flex items-center gap-2">
+              <Truck size={24} />
+              Shipment Tracking
+            </h2>
+            <div className="space-y-4">
+              {shipments.map((s: any) => (
+                <div key={s.id} className="border border-gold-100 rounded p-4 flex flex-col sm:flex-row gap-4">
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-charcoal">Status:</span>
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusStyles(s.status)}`}>
+                        {s.status}
+                      </span>
+                    </div>
+                    {s.carrier && (
+                      <div className="flex items-center gap-2 text-sm text-charcoal">
+                        <MapPin size={14} />
+                        <span>Carrier: {s.carrier}</span>
+                      </div>
+                    )}
+                    {s.tracking_number && (
+                      <div className="flex items-center gap-2 text-sm text-charcoal">
+                        <Package size={14} />
+                        <span>Tracking: {s.tracking_number}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1 text-xs text-gold-500">
+                    {s.shipped_at && (
+                      <div className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        Shipped: {new Date(s.shipped_at).toLocaleString('en-IN', {
+                          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                        })}
+                      </div>
+                    )}
+                    {s.delivered_at && (
+                      <div className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        Delivered: {new Date(s.delivered_at).toLocaleString('en-IN', {
+                          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Order Items */}
         <div className="bg-white border border-gold-200 p-6 rounded-sm shadow-sm">
