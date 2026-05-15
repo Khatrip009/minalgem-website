@@ -149,7 +149,7 @@ export default function OrderDetail() {
               Shipment Tracking
             </h2>
             <div className="space-y-4">
-              {shipments.map((s: any) => (
+              {shipments.map((s) => (                          // ← FIXED: removed : any
                 <div key={s.id} className="border border-gold-100 rounded p-4 flex flex-col sm:flex-row gap-4">
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center gap-2">
