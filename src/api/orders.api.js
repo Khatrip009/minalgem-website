@@ -74,3 +74,11 @@ export const getShippingQuote = (id, body = {}) =>
 export const ORDER_STATUS_OPTIONS = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
 export const PAYMENT_STATUS_OPTIONS = ['pending', 'paid', 'failed', 'refunded'];
 export const FULFILLMENT_STATUS_OPTIONS = ['unfulfilled', 'partial', 'fulfilled'];
+
+/**
+ * Download invoice PDF for an order (customer)
+ * GET /api/sales/orders/:id/invoice-pdf
+ */
+export const downloadOrderInvoice = (orderId) =>
+  apiClient.get(`/sales/orders/${orderId}/invoice-pdf`, { responseType: 'blob' })
+    .then(res => res.data);

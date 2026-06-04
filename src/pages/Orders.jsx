@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getMyOrders } from '../api/orders.api';
+import { getMyOrders, downloadOrderInvoice } from '../api/orders.api';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 
-// Status badge styling helper
+// Status badge styling helper (unchanged)
 function getStatusStyles(status) {
   const s = (status || '').toLowerCase();
   if (s === 'completed' || s === 'paid')
@@ -16,7 +16,7 @@ function getStatusStyles(status) {
   return 'bg-gold-100 text-gold-700 border-gold-200';
 }
 
-// Payment status badge
+// Payment status badge (unchanged)
 function getPaymentBadge(paymentStatus) {
   const s = (paymentStatus || '').toLowerCase();
   if (s === 'paid')
@@ -31,8 +31,9 @@ export default function Orders() {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState(null);
 
-  // Helper: get currency symbol
+  // Helper: get currency symbol (unchanged)
   const getCurrencySymbol = (curr) => {
     switch (curr) {
       case 'USD': return '$';
@@ -65,6 +66,26 @@ export default function Orders() {
       console.error('Failed to load orders:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadInvoice = async (orderId) => {
+    setDownloadingId(orderId);
+    try {
+      const blob = await downloadOrderInvoice(orderId);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice_${orderId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+      alert('Could not download invoice. Please try again later.');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -104,17 +125,17 @@ export default function Orders() {
           <div className="space-y-4">
             {orders.map(order => {
               const orderAmount = Number(order.grand_total || 0);
+              const orderId = order.id || order.order_id;
               return (
-                <Link
-                  key={order.id || order.order_id}
-                  to={`/orders/${order.id || order.order_id}`}
+                <div
+                  key={orderId}
                   className="block bg-white border border-gold-200 rounded-sm shadow-sm hover:shadow-md hover:border-gold-400 transition p-6"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     {/* Order Info */}
                     <div className="space-y-2">
                       <p className="font-serif text-lg text-charcoal">
-                        Order #{order.order_number || order.id?.slice(0, 8)}
+                        Order #{order.order_number || orderId?.slice(0, 8)}
                       </p>
                       <p className="text-sm text-gold-500">
                         {order.placed_at
@@ -128,19 +149,16 @@ export default function Orders() {
                         {order.items_count || 0} items
                       </p>
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {/* Status */}
                         <span
                           className={`inline-block px-3 py-1 text-xs uppercase tracking-widest border rounded-full ${getStatusStyles(order.status)}`}
                         >
                           {order.status || 'pending'}
                         </span>
-                        {/* Payment */}
                         <span
                           className={`inline-block px-3 py-1 text-xs uppercase tracking-widest border rounded-full ${getPaymentBadge(order.payment_status)}`}
                         >
                           {order.payment_status || 'pending'}
                         </span>
-                        {/* Fulfillment */}
                         {order.fulfillment_status && (
                           <span className="inline-block px-3 py-1 text-xs uppercase tracking-widest border border-gold-200 text-gold-600 bg-cream rounded-full">
                             {order.fulfillment_status}
@@ -149,7 +167,7 @@ export default function Orders() {
                       </div>
                     </div>
 
-                    {/* Amount – multi-currency */}
+                    {/* Amount and Invoice Button */}
                     <div className="text-right">
                       {currencyLoading ? (
                         <div className="flex justify-end">
@@ -160,12 +178,24 @@ export default function Orders() {
                           {formatPrice(orderAmount)}
                         </p>
                       )}
-                      <p className="text-xs text-gold-500 uppercase tracking-widest mt-1">
-                        View Details →
-                      </p>
+                      <div className="flex items-center justify-end gap-3 mt-2">
+                        <Link
+                          to={`/orders/${orderId}`}
+                          className="text-xs text-gold-500 uppercase tracking-widest hover:text-gold-700 transition"
+                        >
+                          View Details →
+                        </Link>
+                        <button
+                          onClick={() => handleDownloadInvoice(orderId)}
+                          disabled={downloadingId === orderId}
+                          className="text-xs text-gold-600 uppercase tracking-widest border border-gold-300 px-2 py-1 rounded-sm hover:bg-gold-50 transition disabled:opacity-50"
+                        >
+                          {downloadingId === orderId ? '...' : 'Download Invoice'}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>

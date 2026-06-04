@@ -1,3 +1,4 @@
+// src/context/CurrencyContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const CurrencyContext = createContext(null);

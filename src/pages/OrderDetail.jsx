@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getOrder, getOrderTimeline } from '../api/orders.api';
+import { getOrder, getOrderTimeline, downloadOrderInvoice } from '../api/orders.api';
 import { getImageUrl } from '../utils/imageUrl';
 import { useCurrency } from '../context/CurrencyContext';
 
@@ -8,16 +8,7 @@ import { useCurrency } from '../context/CurrencyContext';
    Inline SVG icons (no external dependency)
 ------------------------------------------------------- */
 const Truck = ({ size = 24 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 3h15v13H1zM16 8h4l3 3v5h-7V8z" />
     <circle cx="5.5" cy="18.5" r="2.5" />
     <circle cx="18.5" cy="18.5" r="2.5" />
@@ -25,16 +16,7 @@ const Truck = ({ size = 24 }) => (
 );
 
 const PackageIcon = ({ size = 24 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M16.5 9.4 7.55 4.24" />
     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
     <polyline points="3.29 7 12 12 20.71 7" />
@@ -43,32 +25,14 @@ const PackageIcon = ({ size = 24 }) => (
 );
 
 const MapPin = ({ size = 24 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
     <circle cx="12" cy="10" r="3" />
   </svg>
 );
 
 const Calendar = ({ size = 24 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
     <line x1="16" y1="2" x2="16" y2="6" />
     <line x1="8" y1="2" x2="8" y2="6" />
@@ -87,6 +51,7 @@ export default function OrderDetail() {
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
   // Helper: currency symbol
   const getCurrencySymbol = (curr) => {
@@ -140,6 +105,26 @@ export default function OrderDetail() {
     }
   };
 
+  const handleDownloadInvoice = async () => {
+    setDownloadingInvoice(true);
+    try {
+      const blob = await downloadOrderInvoice(id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice_${order.order_number || id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+      alert('Could not download invoice. Please try again later.');
+    } finally {
+      setDownloadingInvoice(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center">
@@ -177,7 +162,6 @@ export default function OrderDetail() {
     return 'bg-cream text-gold-600 border-gold-200';
   };
 
-  // Shipments from the backend (now included in order object)
   const shipments = order.shipments || [];
 
   return (
@@ -215,7 +199,7 @@ export default function OrderDetail() {
           )}
         </div>
 
-        {/* Shipments (NEW) */}
+        {/* Shipments */}
         {shipments.length > 0 && (
           <div className="bg-white border border-gold-200 p-6 rounded-sm shadow-sm">
             <h2 className="font-serif text-2xl text-gold-600 mb-6 flex items-center gap-2">
@@ -277,9 +261,7 @@ export default function OrderDetail() {
               const qty = Number(it.quantity || 1);
               const unitPrice = Number(it.unit_price || 0);
               const lineTotal = Number(it.line_total || it.subtotal || unitPrice * qty);
-              const imageUrl = it.primary_image
-                ? getImageUrl(it.primary_image)
-                : '/placeholder.jpg';
+              const imageUrl = it.primary_image ? getImageUrl(it.primary_image) : '/placeholder.jpg';
 
               return (
                 <div key={it.id} className="flex items-center gap-4 pb-4 border-b border-gold-100 last:border-0 last:pb-0">
@@ -413,10 +395,30 @@ export default function OrderDetail() {
 
         {/* Actions */}
         <div className="flex justify-center gap-4">
-          <Link to="/orders" className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition">
+          <Link
+            to="/orders"
+            className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition"
+          >
             Back to Orders
           </Link>
-          <Link to="/shop" className="px-8 py-3 bg-gold-500 text-white uppercase tracking-widest text-sm hover:bg-gold-600 transition">
+          <button
+            onClick={handleDownloadInvoice}
+            disabled={downloadingInvoice}
+            className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition disabled:opacity-50 flex items-center gap-2"
+          >
+            {downloadingInvoice ? (
+              <>
+                <div className="w-4 h-4 border-2 border-gold-600 border-t-transparent rounded-full animate-spin"></div>
+                Generating...
+              </>
+            ) : (
+              'Download Invoice'
+            )}
+          </button>
+          <Link
+            to="/shop"
+            className="px-8 py-3 bg-gold-500 text-white uppercase tracking-widest text-sm hover:bg-gold-600 transition"
+          >
             Continue Shopping
           </Link>
         </div>
