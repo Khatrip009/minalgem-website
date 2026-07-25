@@ -1,13 +1,13 @@
   // src/api/client
   import axios from 'axios';
 
-  const API_URL = import.meta.env.VITE_API_URL || '"https://apiminalgems.exotech.co.in/api"';
+const API_URL = import.meta.env.VITE_API_URL || 'https://apiminalgems.exotech.co.in/api';
+const apiClient = axios.create({
+  baseURL: API_URL,
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
+});
 
-  const apiClient = axios.create({
-    baseURL: API_URL,
-    headers: { 'Content-Type': 'application/json' },
-    withCredentials: true,
-  });
 
   let accessToken = null;
 

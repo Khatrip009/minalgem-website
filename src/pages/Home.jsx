@@ -14,6 +14,9 @@ const FALLBACK_HERO_IMAGES = [
   '/images/hero/hero4.jpg',
 ];
 
+
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'http://localhost:4500';
+
 export default function Home() {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();
   const [heroSlides, setHeroSlides] = useState([]);
@@ -112,7 +115,7 @@ export default function Home() {
     <div className="font-sans overflow-x-hidden">
 
       {/* ========== HERO ========== */}
-      <section className="relative h-screen flex items-center justify-center overflow-hidden">
+      <section className="relative min-h-[500px] md:min-h-[600px] lg:min-h-[80vh] flex items-center justify-center overflow-hidden">
         {!heroImageLoaded && (
           <div className="absolute inset-0 bg-cream flex items-center justify-center z-10">
             <div className="w-8 h-8 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></div>

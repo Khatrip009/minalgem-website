@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCategories } from '../api/categories';
-import { getImageUrl } from '../utils/imageUrl';   // ✅ use custom storage
+import { getImageUrl } from '../utils/imageUrl';   // 
+
+
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
+
 
 export default function Categories({ limit }) {
   const [categories, setCategories] = useState([]);
