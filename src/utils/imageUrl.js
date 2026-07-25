@@ -1,11 +1,31 @@
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
+// src/utils/imageUrl.js
 
-export function getImageUrl(url, fallback = '/placeholder.jpg') {
-  if (!url || typeof url !== 'string') return fallback;
+const DEV_PUBLIC_BASE = 'http://localhost:4900'
+const PROD_PUBLIC_BASE = 'https://storage.minalgem.com'
 
-  // Already absolute (http / https) or a data URI – use as‑is
-  if (/^https?:\/\//i.test(url) || url.startsWith('data:')) return url;
+function getPublicBaseUrl() {
+  return import.meta.env.PROD ? PROD_PUBLIC_BASE : DEV_PUBLIC_BASE
+}
 
-  // Relative path – prepend the backend base URL
-  return `${IMAGE_BASE}${url}`;
+export function getImageUrl(relativePath) {
+  if (!relativePath) return null
+  const publicBase = getPublicBaseUrl()
+
+  // Already a correct public URL?
+  if (relativePath.startsWith(publicBase)) return relativePath
+
+  // Handle full URLs (old data)
+  try {
+    const url = new URL(relativePath)
+    const match = url.pathname.match(/\/(products|avatars|hero|sales|categories|brands|customers|employees|documents|invoices|videos)\/.*/)
+    if (match) {
+      return `${publicBase}/${match[0].replace(/^\//, '')}`
+    }
+    return `${publicBase}/${url.pathname.replace(/^\//, '')}`
+  } catch {
+    // Relative path – remove any leading /uploads/ prefix
+    let cleanPath = relativePath.replace(/^\/uploads\//, '')
+    cleanPath = cleanPath.replace(/^\//, '')
+    return `${publicBase}/${cleanPath}`
+  }
 }

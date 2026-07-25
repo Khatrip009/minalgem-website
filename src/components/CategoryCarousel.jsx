@@ -10,10 +10,9 @@ export default function CategoryCarousel() {
   const [categories, setCategories] = useState([]);
 
   useEffect(() => {
-    getCategories({ include_counts: true })
-      .then(res => {
-        if (res.ok) setCategories(res.categories || []);
-      })
+    // getCategories now returns an array directly
+    getCategories()
+      .then(data => setCategories(data || []))
       .catch(console.error);
   }, []);
 
@@ -40,10 +39,10 @@ export default function CategoryCarousel() {
         }}
       >
         {categories.map(cat => {
-          // 1. Try database image → 2. Try local slug.jpg → 3. Fallback placeholder
+          // Use database image → fallback to local placeholder
           const imageSrc = cat.image_url
             ? getImageUrl(cat.image_url)
-            : `/categories/${cat.slug}.jpg`;                     // ✅ local fallback
+            : '/placeholder.jpg';
 
           return (
             <SwiperSlide key={cat.id} className="!h-auto">
@@ -60,9 +59,6 @@ export default function CategoryCarousel() {
                 <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors" />
                 <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/70 to-transparent">
                   <h3 className="font-serif text-2xl text-white tracking-wide">{cat.name}</h3>
-                  {cat.product_count !== undefined && (
-                    <p className="text-sm text-gold-200 mt-1">{cat.product_count} Pieces</p>
-                  )}
                 </div>
               </Link>
             </SwiperSlide>

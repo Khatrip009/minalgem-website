@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getProductBySlug } from '../api/products';
-import { getReviews, getReviewSummary } from '../api/reviews';
-import { registerStockAlert } from '../api/stockAlerts';
-import { addToCart } from '../api/cart';
+import { supabase } from '../lib/supabase';
+import { getProductBySlug } from '../api/products';   // now returns product directly
+import { getReviews, getReviewSummary } from '../api/reviews'; // already Supabase
+import { registerStockAlert } from '../api/stockAlerts';       // already Supabase
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { useGoldRate } from '../context/GoldRateContext';
@@ -27,8 +27,9 @@ export default function Product() {
   useEffect(() => {
     if (!slug) return;
     getProductBySlug(slug)
-      .then(res => {
-        if (res.ok) setProduct(res.product);
+      .then(data => {
+        // data is the product object with product_assets and product_diamonds
+        setProduct(data);
       })
       .catch(console.error);
   }, [slug]);
@@ -36,13 +37,14 @@ export default function Product() {
   useEffect(() => {
     if (!product) return;
     getReviews('product', product.id)
-      .then(res => setReviews(res.reviews || []))
+      .then(reviewList => setReviews(reviewList || []))
       .catch(console.error);
     getReviewSummary('product', product.id)
-      .then(res => setRatingSummary(res.summary))
+      .then(summary => setRatingSummary(summary))
       .catch(console.error);
   }, [product]);
 
+  // Add to cart using Supabase directly
   const handleAddToCart = async () => {
     if (!product || !product.id) {
       alert('Product information not loaded yet.');
@@ -56,17 +58,63 @@ export default function Product() {
     setAddingToCart(true);
     setCartMessage('');
     try {
-      const response = await addToCart(product.id, 1);
-      console.log('Add to cart response:', response);
+      // 1. Find or create an active cart for this user
+      let { data: cart, error: cartErr } = await supabase
+        .from('carts')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (!cart) {
+        const { data: newCart, error: createErr } = await supabase
+          .from('carts')
+          .insert([{ user_id: user.id, status: 'active', currency: 'INR', subtotal: 0, discount_total: 0, tax_total: 0, shipping_total: 0, grand_total: 0 }])
+          .select('id')
+          .single();
+        if (createErr) throw createErr;
+        cart = newCart;
+      }
+
+      // 2. Check if the product is already in the cart
+      const { data: existingItem } = await supabase
+        .from('cart_items')
+        .select('id, quantity')
+        .eq('cart_id', cart.id)
+        .eq('product_id', product.id)
+        .maybeSingle();
+
+      if (existingItem) {
+        // Update quantity
+        const { error: updateErr } = await supabase
+          .from('cart_items')
+          .update({ quantity: existingItem.quantity + 1 })
+          .eq('id', existingItem.id);
+        if (updateErr) throw updateErr;
+      } else {
+        // Insert new item
+        const { error: insertErr } = await supabase
+  .from('cart_items')
+  .insert([{
+    cart_id: cart.id,
+    product_id: product.id,
+    product_title: product.title,
+    product_slug: product.slug,
+    quantity: 1,
+    unit_price: product.price,
+    currency: 'INR',
+    discount_total: 0,
+    tax_total: 0,
+    line_total: product.price,
+  }]);
+        if (insertErr) throw insertErr;
+      }
+
       setCartMessage('Added to cart ✓');
       setTimeout(() => setCartMessage(''), 3000);
     } catch (err) {
       console.error(err);
-      const serverError =
-        err?.response?.data?.error ||
-        err.message ||
-        'Could not add to cart. Please try again.';
-      alert(`Failed to add to cart: ${serverError}`);
+      alert('Could not add to cart. Please try again.');
     } finally {
       setAddingToCart(false);
     }
@@ -90,28 +138,17 @@ export default function Product() {
     );
   }
 
-  // Extract metadata safely
-  const meta = product.metadata || {};
-  const purity = meta.purity || null;
-  const material = meta.material || null;
-  const stone = meta.stone || null;
-  const gender = meta.gender || null;
-  const origin = meta.origin || null;
-  const certification = meta.certification || null;
-  const occasions = Array.isArray(meta.occasion) ? meta.occasion : [];
-  const diamondDetails = Array.isArray(product.diamonds)
-    ? product.diamonds
-    : product.diamonds
-      ? JSON.parse(product.diamonds)
-      : [];
-
+  // Product details from the fetched object
   const isOutOfStock = Number(product.available_qty) === 0;
   const metalDisplay =
     product.metal_type && product.gold_carat
       ? `${product.metal_type.replace(/_/g, ' ')} ${product.gold_carat}K`
       : product.metal_type?.replace(/_/g, ' ') || null;
 
-  // ---------- Currency & Gold value helpers ----------
+  // Diamond details from nested product_diamonds
+  const diamondDetails = product.product_diamonds || [];
+
+  // Price formatting
   const formatPrice = (price) => {
     if (!price) return 'Price on Request';
     const converted = convertPrice(price);
@@ -133,26 +170,22 @@ export default function Product() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
       <div className="grid md:grid-cols-2 gap-8 md:gap-12">
-        {/* Left: Gallery */}
-        <ProductGallery assets={product.assets} />
+        {/* Left: Gallery (uses product_assets from Supabase) */}
+        <ProductGallery assets={product.product_assets} />
 
         {/* Right: Product Info */}
         <div className="flex flex-col justify-center">
-          {/* Title – scales gracefully */}
           <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl text-gold-600 mb-4">
             {product.title}
           </h1>
-          {/* Short description – slight downscale on mobile */}
           <p className="text-charcoal leading-relaxed text-base sm:text-lg">
             {product.short_description}
           </p>
 
-          {/* Price */}
           <div className="mt-6 text-2xl sm:text-3xl text-gold-600 font-semibold">
             {formatPrice(product.price)}
           </div>
 
-          {/* Estimated Gold Value */}
           {goldValue && (
             <p className="mt-2 text-sm text-charcoal">
               <span className="text-gold-600 font-medium">Approx. Gold Value:</span>{' '}
@@ -168,7 +201,6 @@ export default function Product() {
             )}
           </div>
 
-          {/* Add to Cart / Stock Alert */}
           <div className="mt-8">
             {!isOutOfStock ? (
               <div>
@@ -212,7 +244,6 @@ export default function Product() {
             )}
           </div>
 
-          {/* Product Description */}
           {product.description && (
             <div className="mt-10">
               <h3 className="font-serif text-lg sm:text-xl text-gold-600 mb-2">Description</h3>
@@ -224,22 +255,16 @@ export default function Product() {
         </div>
       </div>
 
-      {/* ========== SPECIFICATIONS / DETAILS ========== */}
+      {/* Product Details */}
       <div className="mt-16 border-t border-gold-200 pt-12 sm:pt-16">
         <h2 className="font-serif text-2xl sm:text-3xl text-gold-600 mb-8 tracking-widest">
           Product Details
         </h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-          {material && (
+          {metalDisplay && (
             <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Material</p>
-              <p className="text-charcoal font-medium">{material}</p>
-            </div>
-          )}
-          {purity && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Purity</p>
-              <p className="text-charcoal font-medium">{purity}</p>
+              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Metal</p>
+              <p className="text-charcoal font-medium">{metalDisplay}</p>
             </div>
           )}
           {product.total_weight > 0 && (
@@ -254,57 +279,21 @@ export default function Product() {
               <p className="text-charcoal font-medium">{product.gold_weight} g</p>
             </div>
           )}
-          {metalDisplay && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Metal</p>
-              <p className="text-charcoal font-medium">{metalDisplay}</p>
-            </div>
-          )}
-          {stone && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Stone Type</p>
-              <p className="text-charcoal font-medium">{stone}</p>
-            </div>
-          )}
-          {gender && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Gender</p>
-              <p className="text-charcoal font-medium">{gender}</p>
-            </div>
-          )}
-          {origin && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Origin</p>
-              <p className="text-charcoal font-medium">{origin}</p>
-            </div>
-          )}
-          {certification && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Certification</p>
-              <p className="text-charcoal font-medium">{certification}</p>
-            </div>
-          )}
-          {occasions.length > 0 && (
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-500 mb-1">Occasion</p>
-              <p className="text-charcoal font-medium">{occasions.join(', ')}</p>
-            </div>
-          )}
         </div>
 
-        {/* Diamond details – horizontal scroll on small screens */}
-        {product.diamond_pcs > 0 && (
+        {diamondDetails.length > 0 && (
           <div className="mt-10">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
               <p className="text-xs uppercase tracking-widest text-gold-500">Diamonds</p>
               <span className="text-charcoal text-sm">
-                {product.diamond_pcs} pcs – {Number(product.diamond_carat).toFixed(2)} carats total
+                {product.total_diamond_pcs} pcs – {Number(product.total_diamond_carat).toFixed(2)} carats total
               </span>
             </div>
             <div className="overflow-x-auto -mx-4 sm:mx-0">
               <table className="w-full text-sm border border-gold-100 min-w-[500px]">
                 <thead>
                   <tr className="bg-gold-50 text-left text-gold-700">
+                    <th className="px-4 py-2 font-medium">Type</th>
                     <th className="px-4 py-2 font-medium">Shape</th>
                     <th className="px-4 py-2 font-medium">Pieces</th>
                     <th className="px-4 py-2 font-medium">Carat</th>
@@ -316,6 +305,7 @@ export default function Product() {
                 <tbody>
                   {diamondDetails.map((d, i) => (
                     <tr key={i} className="border-t border-gold-100">
+                      <td className="px-4 py-2">{d.diamond_type || '-'}</td>
                       <td className="px-4 py-2">{d.shape || '-'}</td>
                       <td className="px-4 py-2">{d.pcs || 0}</td>
                       <td className="px-4 py-2">{d.carat ? Number(d.carat).toFixed(2) : '—'}</td>
@@ -331,7 +321,7 @@ export default function Product() {
         )}
       </div>
 
-      {/* ========== REVIEWS ========== */}
+      {/* Reviews */}
       <div className="mt-20">
         <h2 className="font-serif text-2xl sm:text-3xl text-gold-600 mb-8 tracking-widest">
           Customer Reviews

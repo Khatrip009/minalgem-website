@@ -14,8 +14,6 @@ const FALLBACK_HERO_IMAGES = [
   '/images/hero/hero4.jpg',
 ];
 
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
-
 export default function Home() {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();
   const [heroSlides, setHeroSlides] = useState([]);
@@ -25,35 +23,15 @@ export default function Home() {
   const [categories, setCategories] = useState([]);
   const [categoryProducts, setCategoryProducts] = useState({});
 
-  const getCurrencySymbol = (curr) => {
-    switch (curr) {
-      case 'USD': return '$';
-      case 'EUR': return '€';
-      case 'GBP': return '£';
-      case 'AED': return 'AED';
-      default: return '₹';
-    }
-  };
-
-  const formatPrice = (priceInINR) => {
-    if (!priceInINR) return null;
-    const converted = convertPrice(priceInINR);
-    const symbol = getCurrencySymbol(currency);
-    if (currency === 'AED') return `${converted.toLocaleString()} ${symbol}`;
-    return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-  };
-
-  // Fetch hero slides
+  // 1. Fetch hero slides
   useEffect(() => {
     getHeroSlides()
-      .then(res => {
-        if (res.ok) setHeroSlides(res.slides || []);
-      })
+      .then(slides => setHeroSlides(slides || []))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  // Preload hero image
+  // 2. Preload hero image
   useEffect(() => {
     const hero = heroSlides[0] || null;
     if (hero?.image_url) {
@@ -74,32 +52,53 @@ export default function Home() {
     }
   }, [heroBg, heroSlides]);
 
-  // Fetch categories with products
+  // 3. Fetch categories and their top products
   useEffect(() => {
-    getCategories({ include_counts: true })
-      .then(res => {
-        if (res.ok) {
-          const cats = (res.categories || []).filter(cat => (cat.product_count || 0) > 0);
-          setCategories(cats);
-          cats.forEach(cat => {
-            getProducts({ category: cat.id, limit: 4 })
-              .then(prodRes => {
-                if (prodRes.ok) {
-                  setCategoryProducts(prev => ({
-                    ...prev,
-                    [cat.id]: prodRes.products || []
-                  }));
-                }
-              })
-              .catch(console.error);
-          });
-        }
+    getCategories()
+      .then(cats => {
+        const safeCategories = cats || [];
+        setCategories(safeCategories);
+        safeCategories.forEach(cat => {
+          getProducts({ category: cat.id, limit: 4 })
+            .then(data => {
+              // data is the object returned by getProducts (with products array)
+              const productList = data?.products || [];
+              setCategoryProducts(prev => ({
+                ...prev,
+                [cat.id]: productList,
+              }));
+            })
+            .catch(err => {
+              console.error(`Failed to fetch products for category ${cat.id}`, err);
+              // Set empty array so the UI doesn't break
+              setCategoryProducts(prev => ({ ...prev, [cat.id]: [] }));
+            });
+        });
       })
       .catch(console.error);
   }, []);
 
   const hero = heroSlides[0] || null;
   const showVideo = hero?.video_url;
+
+  // Currency helpers
+  const getCurrencySymbol = (curr) => {
+    switch (curr) {
+      case 'USD': return '$';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      case 'AED': return 'AED';
+      default: return '₹';
+    }
+  };
+
+  const formatPrice = (priceInINR) => {
+    if (!priceInINR) return null;
+    const converted = convertPrice(priceInINR);
+    const symbol = getCurrencySymbol(currency);
+    if (currency === 'AED') return `${converted.toLocaleString()} ${symbol}`;
+    return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  };
 
   if (loading) {
     return (
@@ -138,8 +137,6 @@ export default function Home() {
             decoding="sync"
           />
         )}
-        {/* Optional subtle overlay (no text, just for depth) */}
-        
       </section>
 
       {/* ========== OUR CRAFT (Category Carousel) ========== */}
@@ -154,7 +151,8 @@ export default function Home() {
       <div className="space-y-16 sm:space-y-20">
         {categories.map(category => {
           const products = categoryProducts[category.id] || [];
-          if (products.length === 0) return null;
+          // If products is not an array or empty, skip this category
+          if (!Array.isArray(products) || products.length === 0) return null;
 
           return (
             <section key={category.id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -170,44 +168,53 @@ export default function Home() {
                 </Link>
               </div>
 
-              {/* Product grid – responsive gap and columns */}
+              {/* Product grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5 md:gap-6">
-                {products.map(product => (
-                  <Link
-                    to={`/product/${product.slug}`}
-                    key={product.id}
-                    className="group block transition-shadow hover:shadow-md rounded-sm"
-                  >
-                    <div className="aspect-square overflow-hidden bg-white border border-gold-100">
-                      <img
-                        src={product.primary_image ? `${IMAGE_BASE}${product.primary_image}` : '/placeholder.jpg'}
-                        alt={product.title}
-                        className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 will-change-transform"
-                      />
-                    </div>
-                    <div className="mt-2 sm:mt-3 text-center">
-                      <h3 className="font-serif text-xs sm:text-sm md:text-base text-charcoal tracking-wide line-clamp-1">
-                        {product.title}
-                      </h3>
-                      <p className="text-[11px] sm:text-xs text-gold-600 mt-1">
-                        {currencyLoading ? (
-                          <span className="inline-block w-10 h-2.5 bg-gold-100 animate-pulse rounded"></span>
-                        ) : product.price ? (
-                          formatPrice(product.price)
-                        ) : (
-                          'Price on Request'
-                        )}
-                      </p>
-                    </div>
-                  </Link>
-                ))}
+                {products.map(product => {
+                  const assets = product.product_assets || [];
+                  const primaryAsset =
+                    assets.find(a => a.is_primary && a.asset_type === 'image') ||
+                    assets.find(a => a.asset_type === 'image') ||
+                    assets[0];
+                  const imageUrl = primaryAsset ? getImageUrl(primaryAsset.url) : '/placeholder.jpg';
+
+                  return (
+                    <Link
+                      to={`/product/${product.slug}`}
+                      key={product.id}
+                      className="group block transition-shadow hover:shadow-md rounded-sm"
+                    >
+                      <div className="aspect-square overflow-hidden bg-white border border-gold-100">
+                        <img
+                          src={imageUrl}
+                          alt={product.title}
+                          className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 will-change-transform"
+                        />
+                      </div>
+                      <div className="mt-2 sm:mt-3 text-center">
+                        <h3 className="font-serif text-xs sm:text-sm md:text-base text-charcoal tracking-wide line-clamp-1">
+                          {product.title}
+                        </h3>
+                        <p className="text-[11px] sm:text-xs text-gold-600 mt-1">
+                          {currencyLoading ? (
+                            <span className="inline-block w-10 h-2.5 bg-gold-100 animate-pulse rounded"></span>
+                          ) : product.price ? (
+                            formatPrice(product.price)
+                          ) : (
+                            'Price on Request'
+                          )}
+                        </p>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </section>
           );
         })}
       </div>
 
-      {/* ========== ABOUT – fully responsive ========== */}
+      {/* ========== ABOUT ========== */}
       <section className="bg-cream py-12 sm:py-16 md:py-24 mt-16 sm:mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid md:grid-cols-2 gap-6 md:gap-12 lg:gap-16 items-center">
           <div className="aspect-[4/5] overflow-hidden border border-gold-100 shadow-lg order-2 md:order-1">

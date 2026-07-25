@@ -1,9 +1,36 @@
-import apiClient from './client';
+import { supabase } from '../lib/supabase'
 
-/**
- * Fetch categories (optionally include product counts)
- * Backend returns: { ok: true, categories: [...], page, limit, total, total_pages }
- * Each category: { id, slug, name, description, parent_id, trade_type, image_url, product_count? }
- */
-export const getCategories = (params = {}) =>
-  apiClient.get('/masters/categories', { params }).then(res => res.data);
+export const getCategories = async () => {
+  const { data, error } = await supabase
+    .from('categories')
+    .select('*')
+    .is('deleted_at', null)
+    .order('sort_order', { ascending: true })
+
+  if (error) throw error
+  return data
+}
+
+export const getCategoriesWithCounts = async () => {
+  const { data: categories, error } = await supabase
+    .from('categories')
+    .select('*')
+    .is('deleted_at', null)
+    .order('sort_order', { ascending: true })
+
+  if (error) throw error
+
+  // For each category, get the count of published products
+  const withCounts = await Promise.all(
+    categories.map(async (cat) => {
+      const { count } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('category_id', cat.id)
+        .eq('is_published', true)
+        .is('deleted_at', null)
+      return { ...cat, product_count: count }
+    })
+  )
+  return withCounts
+}

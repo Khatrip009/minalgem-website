@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getOrder, getOrderTimeline, downloadOrderInvoice } from '../api/orders.api';
+import { supabase } from '../lib/supabase';
 import { getImageUrl } from '../utils/imageUrl';
 import { useCurrency } from '../context/CurrencyContext';
 
 /* -------------------------------------------------------
-   Inline SVG icons (no external dependency)
+   Inline SVG icons (fully defined)
 ------------------------------------------------------- */
 const Truck = ({ size = 24 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -45,7 +45,7 @@ const Calendar = ({ size = 24 }) => (
 ------------------------------------------------------- */
 export default function OrderDetail() {
   const { id } = useParams();
-  const { currency, convertPrice, loading: currencyLoading } = useCurrency();
+  const { currency, convertPrice } = useCurrency();
   const [order, setOrder] = useState(null);
   const [items, setItems] = useState([]);
   const [timeline, setTimeline] = useState([]);
@@ -53,7 +53,6 @@ export default function OrderDetail() {
   const [error, setError] = useState('');
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
-  // Helper: currency symbol
   const getCurrencySymbol = (curr) => {
     switch (curr) {
       case 'USD': return '$';
@@ -80,23 +79,58 @@ export default function OrderDetail() {
   const loadOrder = async () => {
     setLoading(true);
     try {
-      const res = await getOrder(id);
-      if (res.ok) {
-        setOrder(res.order);
-        setItems(res.items || []);
-      } else {
+      // Fetch order with all related data
+      const { data: orderData, error: orderErr } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          customers ( name, email, phone ),
+          order_items ( * ),
+          invoices ( * ),
+          order_payments ( * ),
+          order_tax_lines ( * ),
+          shipments ( * )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (orderErr || !orderData) {
         setError('Order not found.');
         return;
       }
 
-      try {
-        const tlRes = await getOrderTimeline(id);
-        if (tlRes.ok) {
-          setTimeline(tlRes.rows || []);
-        }
-      } catch {
-        setTimeline([]);
+      setOrder(orderData);
+      setItems(orderData.order_items || []);
+
+      // Build timeline from order creation, payments, and current status
+      const tl = [
+        {
+          from_status: 'created',
+          to_status: orderData.status,
+          changed_at: orderData.created_at,
+          note: 'Order placed',
+        },
+      ];
+
+      if (orderData.order_payments) {
+        orderData.order_payments.forEach(p => {
+          tl.push({
+            from_status: 'payment',
+            to_status: p.status,
+            changed_at: p.paid_at || p.created_at,
+            note: `${p.payment_method}: ${formatPrice(p.amount)}`,
+          });
+        });
       }
+
+      tl.push({
+        from_status: orderData.status,
+        to_status: 'current',
+        changed_at: new Date().toISOString(),
+        note: `Current status: ${orderData.status}`,
+      });
+
+      setTimeline(tl);
     } catch (err) {
       console.error(err);
       setError('Failed to load order details.');
@@ -105,24 +139,9 @@ export default function OrderDetail() {
     }
   };
 
-  const handleDownloadInvoice = async () => {
-    setDownloadingInvoice(true);
-    try {
-      const blob = await downloadOrderInvoice(id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `invoice_${order.order_number || id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Invoice download failed:', err);
-      alert('Could not download invoice. Please try again later.');
-    } finally {
-      setDownloadingInvoice(false);
-    }
+  const handleDownloadInvoice = () => {
+    // Placeholder for invoice download – you can integrate the admin's invoice generator later.
+    alert('Invoice PDF will be available soon.');
   };
 
   if (loading) {
@@ -137,10 +156,7 @@ export default function OrderDetail() {
     return (
       <div className="min-h-screen bg-cream flex flex-col items-center justify-center gap-4">
         <p className="text-xl font-serif text-gold-600">{error || 'Order not found'}</p>
-        <Link
-          to="/orders"
-          className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition"
-        >
+        <Link to="/orders" className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition">
           Back to Orders
         </Link>
       </div>
@@ -155,9 +171,11 @@ export default function OrderDetail() {
     return 'bg-gold-100 text-gold-700 border-gold-200';
   };
 
-  const getPaymentBadge = (ps) => {
-    const s = (ps || '').toLowerCase();
-    if (s === 'paid') return 'bg-green-50 text-green-600 border-green-100';
+  const getPaymentBadge = () => {
+    const payment = order.order_payments?.[0];
+    if (!payment) return 'bg-cream text-gold-600 border-gold-200';
+    const s = (payment.status || '').toLowerCase();
+    if (s === 'completed' || s === 'paid') return 'bg-green-50 text-green-600 border-green-100';
     if (s === 'failed') return 'bg-red-50 text-red-600 border-red-100';
     return 'bg-cream text-gold-600 border-gold-200';
   };
@@ -174,8 +192,8 @@ export default function OrderDetail() {
           </h1>
           <p className="text-charcoal mt-2">
             Placed on{' '}
-            {order.placed_at
-              ? new Date(order.placed_at).toLocaleDateString('en-IN', {
+            {order.created_at
+              ? new Date(order.created_at).toLocaleDateString('en-IN', {
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric',
@@ -189,14 +207,9 @@ export default function OrderDetail() {
           <span className={`px-4 py-1.5 text-xs uppercase tracking-widest border rounded-full ${getStatusStyles(order.status)}`}>
             {order.status || 'pending'}
           </span>
-          <span className={`px-4 py-1.5 text-xs uppercase tracking-widest border rounded-full ${getPaymentBadge(order.payment_status)}`}>
-            {order.payment_status || 'pending'}
+          <span className={`px-4 py-1.5 text-xs uppercase tracking-widest border rounded-full ${getPaymentBadge()}`}>
+            {order.order_payments?.[0]?.status || 'pending'}
           </span>
-          {order.fulfillment_status && (
-            <span className="px-4 py-1.5 text-xs uppercase tracking-widest border border-gold-200 text-gold-600 bg-cream rounded-full">
-              {order.fulfillment_status}
-            </span>
-          )}
         </div>
 
         {/* Shipments */}
@@ -260,37 +273,27 @@ export default function OrderDetail() {
             {items.map((it) => {
               const qty = Number(it.quantity || 1);
               const unitPrice = Number(it.unit_price || 0);
-              const lineTotal = Number(it.line_total || it.subtotal || unitPrice * qty);
-              const imageUrl = it.primary_image ? getImageUrl(it.primary_image) : '/placeholder.jpg';
-
+              const lineTotal = it.total_price || unitPrice * qty;
+              // Use placeholder for image; you could later fetch product assets
+              const imageUrl = '/placeholder.jpg';
               return (
                 <div key={it.id} className="flex items-center gap-4 pb-4 border-b border-gold-100 last:border-0 last:pb-0">
                   <div className="w-16 h-16 flex-shrink-0 border border-gold-100">
-                    <img src={imageUrl} alt={it.title || 'Product'} className="w-full h-full object-cover" />
+                    <img src={imageUrl} alt={it.product_title} className="w-full h-full object-cover" />
                   </div>
                   <div className="flex-1">
-                    {it.slug ? (
-                      <Link to={`/product/${it.slug}`} className="font-serif text-charcoal hover:text-gold-600 transition">
-                        {it.title || 'Product'}
+                    {it.product_slug ? (
+                      <Link to={`/product/${it.product_slug}`} className="font-serif text-charcoal hover:text-gold-600 transition">
+                        {it.product_title || 'Product'}
                       </Link>
                     ) : (
-                      <p className="font-serif text-charcoal">{it.title || 'Product'}</p>
+                      <p className="font-serif text-charcoal">{it.product_title || 'Product'}</p>
                     )}
                     <p className="text-sm text-charcoal mt-1">
-                      Qty: {qty} × {currencyLoading ? (
-                        <span className="inline-block w-10 h-3 bg-gold-100 animate-pulse rounded"></span>
-                      ) : (
-                        formatPrice(unitPrice)
-                      )}
+                      Qty: {qty} × {formatPrice(unitPrice)}
                     </p>
                   </div>
-                  <p className="font-medium text-charcoal">
-                    {currencyLoading ? (
-                      <span className="inline-block w-14 h-4 bg-gold-100 animate-pulse rounded"></span>
-                    ) : (
-                      formatPrice(lineTotal)
-                    )}
-                  </p>
+                  <p className="font-medium text-charcoal">{formatPrice(lineTotal)}</p>
                 </div>
               );
             })}
@@ -303,56 +306,26 @@ export default function OrderDetail() {
           <div className="space-y-3 text-sm max-w-xs ml-auto">
             <div className="flex justify-between text-charcoal">
               <span className="uppercase tracking-widest">Subtotal</span>
-              <span>
-                {currencyLoading ? (
-                  <span className="inline-block w-16 h-4 bg-gold-100 animate-pulse rounded"></span>
-                ) : (
-                  formatPrice(Number(order.subtotal || 0))
-                )}
-              </span>
+              <span>{formatPrice(order.subtotal || 0)}</span>
             </div>
-            {order.discount_total > 0 && (
+            {order.discount_amount > 0 && (
               <div className="flex justify-between text-green-700">
                 <span className="uppercase tracking-widest">Discount</span>
-                <span>
-                  {currencyLoading ? (
-                    <span className="inline-block w-16 h-4 bg-gold-100 animate-pulse rounded"></span>
-                  ) : (
-                    `-${formatPrice(Number(order.discount_total || 0))}`
-                  )}
-                </span>
+                <span>-{formatPrice(order.discount_amount)}</span>
               </div>
             )}
             <div className="flex justify-between text-charcoal">
               <span className="uppercase tracking-widest">Shipping</span>
-              <span>
-                {currencyLoading ? (
-                  <span className="inline-block w-16 h-4 bg-gold-100 animate-pulse rounded"></span>
-                ) : (
-                  (Number(order.shipping_total || 0) === 0 ? 'Free' : formatPrice(Number(order.shipping_total || 0)))
-                )}
-              </span>
+              <span>{order.shipping_cost === 0 ? 'Free' : formatPrice(order.shipping_cost)}</span>
             </div>
             <div className="flex justify-between text-charcoal">
               <span className="uppercase tracking-widest">Tax</span>
-              <span>
-                {currencyLoading ? (
-                  <span className="inline-block w-16 h-4 bg-gold-100 animate-pulse rounded"></span>
-                ) : (
-                  formatPrice(Number(order.tax_total || 0))
-                )}
-              </span>
+              <span>{formatPrice(order.tax_amount)}</span>
             </div>
             <hr className="border-gold-200" />
             <div className="flex justify-between text-lg font-serif text-gold-700">
               <span>Grand Total</span>
-              <span>
-                {currencyLoading ? (
-                  <span className="inline-block w-20 h-5 bg-gold-100 animate-pulse rounded"></span>
-                ) : (
-                  formatPrice(Number(order.grand_total || 0))
-                )}
-              </span>
+              <span>{formatPrice(order.grand_total)}</span>
             </div>
           </div>
         </div>
@@ -365,7 +338,7 @@ export default function OrderDetail() {
           ) : (
             <div className="space-y-5">
               {timeline.map((t, idx) => (
-                <div key={t.id || idx} className="flex gap-4">
+                <div key={idx} className="flex gap-4">
                   <div className="flex flex-col items-center">
                     <div className="w-3 h-3 rounded-full bg-gold-500 mt-1.5" />
                     <div className="w-px h-full bg-gold-200" />
@@ -373,7 +346,7 @@ export default function OrderDetail() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm font-medium capitalize text-charcoal">
-                        {t.from_status || 'start'} → {t.to_status || 'pending'}
+                        {t.from_status} → {t.to_status}
                       </span>
                     </div>
                     <p className="text-xs text-gold-500">
@@ -395,10 +368,7 @@ export default function OrderDetail() {
 
         {/* Actions */}
         <div className="flex justify-center gap-4">
-          <Link
-            to="/orders"
-            className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition"
-          >
+          <Link to="/orders" className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition">
             Back to Orders
           </Link>
           <button
@@ -406,19 +376,9 @@ export default function OrderDetail() {
             disabled={downloadingInvoice}
             className="px-8 py-3 border border-gold-500 text-gold-600 uppercase tracking-widest text-sm hover:bg-gold-50 transition disabled:opacity-50 flex items-center gap-2"
           >
-            {downloadingInvoice ? (
-              <>
-                <div className="w-4 h-4 border-2 border-gold-600 border-t-transparent rounded-full animate-spin"></div>
-                Generating...
-              </>
-            ) : (
-              'Download Invoice'
-            )}
+            {downloadingInvoice ? 'Generating...' : 'Download Invoice'}
           </button>
-          <Link
-            to="/shop"
-            className="px-8 py-3 bg-gold-500 text-white uppercase tracking-widest text-sm hover:bg-gold-600 transition"
-          >
+          <Link to="/shop" className="px-8 py-3 bg-gold-500 text-white uppercase tracking-widest text-sm hover:bg-gold-600 transition">
             Continue Shopping
           </Link>
         </div>

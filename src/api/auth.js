@@ -1,40 +1,84 @@
-import apiClient, { setAccessToken, clearAccessToken } from './client';
+// src/api/auth.js
+import { supabase } from '../lib/supabase'
 
-export const register = ({ full_name, email, password }) =>
-  apiClient.post('/auth/register', { full_name, email, password }).then(res => {
-    if (res.data.ok) {
-      setAccessToken(res.data.token);
-      return res.data.user;
-    }
-    throw new Error(res.data.error);
-  });
+/**
+ * Register a new user.
+ * Returns the Supabase user object.
+ */
+export const register = async ({ full_name, email, password }) => {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name },   // stored in user_metadata
+    },
+  })
 
+  if (error) throw new Error(error.message)
+  return data.user
+}
+
+/**
+ * Sign in with email and password.
+ * Returns the Supabase user object.
+ */
 export const login = async (email, password) => {
-  const { data } = await apiClient.post('/auth/login', { email, password });
-  if (data.ok) {
-    setAccessToken(data.token);
-    return data.user;
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+
+  if (error) throw new Error(error.message)
+  return data.user
+}
+
+/**
+ * Sign out.
+ */
+export const logout = async () => {
+  await supabase.auth.signOut()
+  window.location.replace('/login?logout=1')
+}
+
+/**
+ * Refresh the session token (if needed).
+ * Supabase handles token refresh automatically, so this is a no-op.
+ */
+export const refreshToken = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.access_token
+}
+
+/**
+ * Get the currently authenticated user.
+ * Returns { user, profile } merged object (similar to old API).
+ */
+export const getMe = async () => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not logged in')
+
+  // Also fetch the profile for extra info (optional)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  return {
+    id: user.id,
+    email: user.email,
+    full_name: profile?.full_name || user.user_metadata?.full_name || '',
+    avatar_url: profile?.avatar_url || '',
+    role: profile?.role || 'customer',
   }
-  throw new Error(data.error);
-};
+}
 
-// ✅ CHANGED: clear token first, then call logout (no Bearer header will be sent)
-export const logout = () => {
-  clearAccessToken();                     // <-- remove token from memory
-  return apiClient.post('/auth/logout')   // only cookie, no Authorization
-    .finally(() => {
-      window.location.replace('/login?logout=1');
-    });
-};
+// The old setAccessToken and clearAccessToken are no longer needed,
+// but if any code still imports them, provide empty stubs.
+export const setAccessToken = (token) => {
+  // Supabase manages the token internally.
+}
 
-export const refreshToken = () =>
-  apiClient.post('/auth/refresh').then(res => {
-    if (res.data.ok) {
-      setAccessToken(res.data.token);
-      return res.data.token;
-    }
-    throw new Error(res.data.error);
-  });
-
-export const getMe = () =>
-  apiClient.get('/auth/me').then(res => res.data);
+export const clearAccessToken = () => {
+  // Supabase manages the token internally.
+}

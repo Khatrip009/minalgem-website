@@ -1,4 +1,12 @@
-import apiClient from './client';
+import { supabase } from '../lib/supabase'
 
-export const getHeroSlides = () =>
-  apiClient.get('/masters/hero').then(res => res.data);
+export async function getHeroSlides() {
+  const { data, error } = await supabase
+    .from('hero_slides')
+    .select('*')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  if (error) throw error
+  return data
+}

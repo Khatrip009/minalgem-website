@@ -1,36 +1,50 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import apiClient from '../api/client';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 export default function NotificationBell() {
+  const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  const fetchUnread = async () => {
+  const fetchNotifications = async () => {
+    if (!user) return;
     try {
-      const res = await apiClient.get('/crm/notifications/unread');
-      if (res.data.ok) {
-        const items = res.data.items || [];
-        setUnreadCount(items.length);
-        setNotifications(items.slice(0, 10)); // show latest 10
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Failed to fetch notifications', error);
+        return;
       }
+      const items = data || [];
+      setNotifications(items.slice(0, 10));          // show latest 10
+      setUnreadCount(items.filter(n => !n.is_read).length);
     } catch (err) {
       console.error('Failed to fetch notifications', err);
     }
   };
 
   useEffect(() => {
-    fetchUnread();
-    const interval = setInterval(fetchUnread, 30000); // refresh every 30s
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000); // refresh every 30s
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   const markAsRead = async (id) => {
     try {
-      await apiClient.post(`/crm/notifications/${id}/read`);
-      fetchUnread();
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', id);
+      fetchNotifications();
     } catch (err) {
       console.error('Failed to mark as read', err);
     }
@@ -38,13 +52,18 @@ export default function NotificationBell() {
 
   const markAllRead = async () => {
     try {
-      await apiClient.post('/crm/notifications/mark-all-read');
-      fetchUnread();
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+      fetchNotifications();
     } catch (err) {
       console.error('Failed to mark all read', err);
     }
   };
 
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -89,39 +108,40 @@ export default function NotificationBell() {
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
               <div className="p-4 text-center text-charcoal text-sm">
-                No new notifications
+                No notifications yet
               </div>
             ) : (
               notifications.map(n => (
                 <div key={n.id} className="p-3 border-b border-gold-50 hover:bg-gold-50 transition">
                   <div className="flex justify-between">
-                    <div>
+                    <div className="flex-1">
                       <p className="text-sm font-medium text-charcoal">{n.title}</p>
-                      <p className="text-xs text-gold-600 mt-1">{n.body}</p>
+                      {n.body && <p className="text-xs text-gold-600 mt-1">{n.body}</p>}
                       <p className="text-xs text-gray-400 mt-1">
                         {new Date(n.created_at).toLocaleString()}
                       </p>
                     </div>
-                    <button
-                      onClick={() => markAsRead(n.id)}
-                      className="text-xs text-gold-400 hover:text-gold-600"
-                      aria-label="Mark as read"
-                    >
-                      ✓
-                    </button>
+                    {!n.is_read && (
+                      <button
+                        onClick={() => markAsRead(n.id)}
+                        className="text-xs text-gold-400 hover:text-gold-600 ml-2 flex-shrink-0"
+                        aria-label="Mark as read"
+                      >
+                        ✓
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
             )}
           </div>
           <div className="p-2 text-center border-t border-gold-100">
-            <Link
-              to="/notifications"
-              className="text-xs text-gold-600 hover:text-gold-800 uppercase tracking-wider"
+            <button
               onClick={() => setOpen(false)}
+              className="text-xs text-gold-600 hover:text-gold-800 uppercase tracking-wider"
             >
-              View all
-            </Link>
+              Close
+            </button>
           </div>
         </div>
       )}

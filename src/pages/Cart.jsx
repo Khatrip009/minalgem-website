@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getCart, updateCartItem, removeCartItem } from '../api/cart';
-import { getProductBySlug } from '../api/products';
+import { supabase } from '../lib/supabase';
+import { getProductBySlug } from '../api/products';   // already uses Supabase
 import { getImageUrl } from '../utils/imageUrl';
 import { useCurrency } from '../context/CurrencyContext';
 
@@ -13,77 +13,144 @@ export default function Cart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState(null);
-
-  // Store product details fetched from API (slug -> product)
   const [products, setProducts] = useState({});
 
-  useEffect(() => { fetchCart(); }, []);
+  // --------------- Cart helpers (inline Supabase) ---------------
+  const getOrCreateCart = async (userId, visitorId) => {
+    // Try to find an active cart for this user/visitor
+    let query = supabase
+      .from('carts')
+      .select('*, cart_items (*)')
+      .eq('status', 'active');
 
-  // When cart items change, fetch their product details
-  useEffect(() => {
-    if (!cart?.items?.length) return;
-    const slugs = cart.items
-      .map(item => item.product_slug || item.slug)
-      .filter(Boolean);
+    if (userId) {
+      query = query.eq('user_id', userId);
+    } else if (visitorId) {
+      query = query.eq('visitor_id', visitorId);
+    } else {
+      return null; // no identifier
+    }
 
-    const uniqueSlugs = [...new Set(slugs)];
-    Promise.all(
-      uniqueSlugs.map(slug =>
-        getProductBySlug(slug)
-          .then(res => (res.ok ? { [slug]: res.product } : {}))
-          .catch(() => ({}))
-      )
-    ).then(results => {
-      const merged = Object.assign({}, ...results);
-      setProducts(prev => ({ ...prev, ...merged }));
-    }).catch(console.error);
-  }, [cart?.items]);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+
+    // Create a new cart
+    const newCart = {
+      user_id: userId || null,
+      visitor_id: visitorId || null,
+      status: 'active',
+      currency: 'INR',
+      subtotal: 0,
+      discount_total: 0,
+      tax_total: 0,
+      shipping_total: 0,
+      grand_total: 0,
+    };
+    const { data: created, error: createErr } = await supabase
+      .from('carts')
+      .insert([newCart])
+      .select('*, cart_items (*)')
+      .single();
+    if (createErr) throw createErr;
+    return created;
+  };
 
   const fetchCart = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await getCart();
-      if (res.ok) setCart(res.cart);
-      else setError(res.error || 'Could not load cart');
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id || null;
+      const visitorId = localStorage.getItem('visitor_id') || null;
+
+      const cartData = await getOrCreateCart(userId, visitorId);
+      if (cartData) {
+        setCart(cartData);
+      } else {
+        setCart({ items: [], total: 0, subtotal: 0 });
+      }
     } catch (err) {
       setError('Failed to load cart');
       console.error(err);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleQuantityChange = async (itemId, newQty) => {
     if (newQty < 1) return;
     setUpdating(itemId);
     try {
-      const res = await updateCartItem(itemId, newQty);
-      if (res.ok && res.cart) setCart(res.cart);
-      else await fetchCart();
+      // Update the cart item
+      const { error } = await supabase
+        .from('cart_items')
+        .update({ quantity: newQty })
+        .eq('id', itemId);
+      if (error) throw error;
+      // Re-fetch cart to get updated totals
+      await fetchCart();
     } catch (err) {
       console.error(err);
       alert('Failed to update quantity');
-    } finally { setUpdating(null); }
+    } finally {
+      setUpdating(null);
+    }
   };
 
   const handleRemove = async (itemId) => {
     if (!window.confirm('Remove this item from your cart?')) return;
     setUpdating(itemId);
     try {
-      const res = await removeCartItem(itemId);
-      if (res.ok && res.cart) setCart(res.cart);
-      else await fetchCart();
+      const { error } = await supabase
+        .from('cart_items')
+        .delete()
+        .eq('id', itemId);
+      if (error) throw error;
+      await fetchCart();
     } catch (err) {
       console.error(err);
       alert('Failed to remove item');
-    } finally { setUpdating(null); }
+    } finally {
+      setUpdating(null);
+    }
   };
 
-  const cartItems = cart?.items || [];
-  const subtotal = Number(cart?.total || 0);   // backend uses 'total'
+  // --------------- Effects ---------------
+  useEffect(() => {
+    // Generate a visitor ID if none exists (for anonymous users)
+    if (!localStorage.getItem('visitor_id')) {
+      localStorage.setItem('visitor_id', crypto.randomUUID());
+    }
+    fetchCart();
+  }, []);
+
+  // When cart items change, fetch product details for each unique slug
+  useEffect(() => {
+    if (!cart?.cart_items?.length) return;
+    const slugs = cart.cart_items
+      .map(item => item.product_slug)
+      .filter(Boolean);
+
+    const uniqueSlugs = [...new Set(slugs)];
+    Promise.all(
+      uniqueSlugs.map(slug =>
+        getProductBySlug(slug)
+          .then(product => ({ [slug]: product }))
+          .catch(() => ({}))
+      )
+    ).then(results => {
+      const merged = Object.assign({}, ...results);
+      setProducts(prev => ({ ...prev, ...merged }));
+    }).catch(console.error);
+  }, [cart?.cart_items]);
+
+  // --------------- Derived values ---------------
+  const cartItems = cart?.cart_items || [];
+  const subtotal = cartItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
   const shipping = subtotal > 10000 ? 0 : 250;
   const total = subtotal + shipping;
 
-  // Helper to display converted price
   const formatPrice = (price) => {
     if (!price) return '—';
     const converted = convertPrice(price);
@@ -136,19 +203,18 @@ export default function Cart() {
                 </thead>
                 <tbody>
                   {cartItems.map((item) => {
-                    const slug = item.product_slug || item.slug;
-                    const product = products[slug];   // from product API
-                    const imageUrl = product?.assets?.[0]?.url
-                      ? getImageUrl(product.assets[0].url)
+                    const slug = item.product_slug;
+                    const product = products[slug];
+                    const imageUrl = product?.product_assets?.[0]?.url
+                      ? getImageUrl(product.product_assets[0].url)
                       : '/placeholder.jpg';
-                    const productTitle = product?.title || item.product_title || item.title;
+                    const productTitle = product?.title || item.product_title;
                     const price = Number(item.unit_price || 0);
                     const qty = Number(item.quantity || 1);
                     const itemTotal = price * qty;
-                    const itemId = item.item_id || item.id;
 
                     return (
-                      <tr key={itemId} className="border-b border-gold-100">
+                      <tr key={item.id} className="border-b border-gold-100">
                         <td className="py-5">
                           <div className="flex items-center gap-4">
                             <div className="w-16 h-16 flex-shrink-0 border border-gold-100">
@@ -173,14 +239,14 @@ export default function Cart() {
                         <td className="py-5">
                           <div className="flex items-center justify-center gap-1">
                             <button
-                              onClick={() => handleQuantityChange(itemId, qty - 1)}
-                              disabled={updating === itemId}
+                              onClick={() => handleQuantityChange(item.id, qty - 1)}
+                              disabled={updating === item.id}
                               className="w-8 h-8 border border-gold-300 text-gold-600 hover:bg-gold-50 disabled:opacity-50"
                             >−</button>
                             <span className="w-10 text-center text-charcoal">{qty}</span>
                             <button
-                              onClick={() => handleQuantityChange(itemId, qty + 1)}
-                              disabled={updating === itemId}
+                              onClick={() => handleQuantityChange(item.id, qty + 1)}
+                              disabled={updating === item.id}
                               className="w-8 h-8 border border-gold-300 text-gold-600 hover:bg-gold-50 disabled:opacity-50"
                             >+</button>
                           </div>
@@ -188,8 +254,8 @@ export default function Cart() {
                         <td className="py-5 text-right font-medium text-charcoal">{formatPrice(itemTotal)}</td>
                         <td className="py-5 text-right">
                           <button
-                            onClick={() => handleRemove(itemId)}
-                            disabled={updating === itemId}
+                            onClick={() => handleRemove(item.id)}
+                            disabled={updating === item.id}
                             className="text-red-500 hover:text-red-700 text-sm uppercase tracking-widest disabled:opacity-50"
                           >
                             Remove
@@ -205,19 +271,18 @@ export default function Cart() {
             {/* Mobile Cards */}
             <div className="md:hidden mt-8 space-y-6">
               {cartItems.map((item) => {
-                const slug = item.product_slug || item.slug;
+                const slug = item.product_slug;
                 const product = products[slug];
-                const imageUrl = product?.assets?.[0]?.url
-                  ? getImageUrl(product.assets[0].url)
+                const imageUrl = product?.product_assets?.[0]?.url
+                  ? getImageUrl(product.product_assets[0].url)
                   : '/placeholder.jpg';
-                const productTitle = product?.title || item.product_title || item.title;
+                const productTitle = product?.title || item.product_title;
                 const price = Number(item.unit_price || 0);
                 const qty = Number(item.quantity || 1);
                 const itemTotal = price * qty;
-                const itemId = item.item_id || item.id;
 
                 return (
-                  <div key={itemId} className="border border-gold-200 bg-white p-4 rounded-sm">
+                  <div key={item.id} className="border border-gold-200 bg-white p-4 rounded-sm">
                     <div className="flex gap-4">
                       <div className="w-20 h-20 flex-shrink-0 border border-gold-100">
                         <img
@@ -234,12 +299,12 @@ export default function Cart() {
                         <p className="text-gold-600 mt-1">{formatPrice(price)}</p>
                         <div className="flex items-center justify-between mt-3">
                           <div className="flex items-center gap-1">
-                            <button onClick={() => handleQuantityChange(itemId, qty - 1)} className="w-7 h-7 border border-gold-300 text-gold-600">−</button>
+                            <button onClick={() => handleQuantityChange(item.id, qty - 1)} className="w-7 h-7 border border-gold-300 text-gold-600">−</button>
                             <span className="w-8 text-center text-sm">{qty}</span>
-                            <button onClick={() => handleQuantityChange(itemId, qty + 1)} className="w-7 h-7 border border-gold-300 text-gold-600">+</button>
+                            <button onClick={() => handleQuantityChange(item.id, qty + 1)} className="w-7 h-7 border border-gold-300 text-gold-600">+</button>
                           </div>
                           <span className="font-medium text-charcoal">{formatPrice(itemTotal)}</span>
-                          <button onClick={() => handleRemove(itemId)} className="text-red-500 text-xs uppercase tracking-widest">Remove</button>
+                          <button onClick={() => handleRemove(item.id)} className="text-red-500 text-xs uppercase tracking-widest">Remove</button>
                         </div>
                       </div>
                     </div>

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
-import { getCart } from '../api/cart';
+import { supabase } from '../lib/supabase';   // ✅ replaced getCart
 import NotificationBell from './NotificationBell';
 
 export default function Header() {
@@ -18,23 +18,40 @@ export default function Header() {
   const educationRef = useRef(null);
   const profileRef = useRef(null);
 
-  // Fetch cart count
+  // Fetch cart count from Supabase
   useEffect(() => {
-    if (user) {
-      fetchCartCount();
-    } else {
-      setCartCount(0);
-    }
+    fetchCartCount();
   }, [user]);
 
   const fetchCartCount = async () => {
     try {
-      const res = await getCart();
-      if (res.ok && res.cart) {
-        const items = res.cart.items || [];
-        const count = items.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
-        setCartCount(count);
+      let query = supabase
+        .from('carts')
+        .select('id, cart_items (quantity)')
+        .eq('status', 'active');
+
+      if (user?.id) {
+        query = query.eq('user_id', user.id);
+      } else {
+        const visitorId = localStorage.getItem('visitor_id');
+        if (visitorId) {
+          query = query.eq('visitor_id', visitorId);
+        } else {
+          setCartCount(0);
+          return;
+        }
       }
+
+      const { data, error } = await query.maybeSingle();
+
+      if (error || !data) {
+        setCartCount(0);
+        return;
+      }
+
+      const items = data.cart_items || [];
+      const count = items.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
+      setCartCount(count);
     } catch {
       setCartCount(0);
     }
@@ -182,7 +199,7 @@ export default function Header() {
 
           {/* Right side icons – always visible */}
           <div className="flex items-center gap-1 sm:gap-3">
-            {/* Notification Bell - responsive sizing */}
+            {/* Notification Bell */}
             <div className="scale-90 sm:scale-100">
               <NotificationBell />
             </div>

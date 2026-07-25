@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import apiClient from '../api/client';
+import { supabase } from '../lib/supabase';   // ✅ replaced apiClient
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
@@ -15,9 +15,14 @@ export default function Footer() {
 
     async function loadVisitors() {
       try {
-        const { data } = await apiClient.get('/analytics/visitors-metrics/summary');
-        if (cancelled || !data.ok) return;
-        const raw = data.metrics?.total_visitors ?? 0;
+        // Get total visitor count from the visitors table
+        const { count, error } = await supabase
+          .from('visitors')
+          .select('id', { count: 'exact', head: true });
+
+        if (cancelled || error) return;
+
+        const raw = count ?? 0;
         const DISPLAY_BASE = 10689;
         const DISPLAY_MULTIPLIER = 5;
         const displayTotal = DISPLAY_BASE + raw * DISPLAY_MULTIPLIER;
@@ -29,10 +34,21 @@ export default function Footer() {
 
     async function loadReviews() {
       try {
-        const { data } = await apiClient.get('/reviews/stats');
-        if (cancelled || !data.ok) return;
-        setAvgRating(data.stats?.avg_rating ?? null);
-        setTotalReviews(data.stats?.total_reviews ?? null);
+        // Fetch published reviews to calculate avg rating and total count
+        const { data, count, error } = await supabase
+          .from('reviews')
+          .select('rating', { count: 'exact' })
+          .eq('is_published', true);
+
+        if (cancelled || error) return;
+
+        const total = count ?? 0;
+        const avg = total > 0
+          ? data.reduce((sum, r) => sum + r.rating, 0) / total
+          : 0;
+
+        setAvgRating(avg);
+        setTotalReviews(total);
       } catch (err) {
         console.warn('Failed to load reviews', err);
       }
@@ -54,7 +70,7 @@ export default function Footer() {
     e.preventDefault();
     if (!email) return;
     try {
-      // Add your newsletter endpoint if available
+      // If you later add a newsletters table, insert here.
       setSubscribed(true);
       setEmail('');
       setTimeout(() => setSubscribed(false), 3000);
@@ -81,7 +97,7 @@ export default function Footer() {
 
   return (
     <>
-      {/* WhatsApp Float Button – simplified */}
+      {/* WhatsApp Float Button */}
       <a
         href={waLink}
         target="_blank"
@@ -140,79 +156,15 @@ export default function Footer() {
             {/* Quick Links */}
             <div>
               <h3 className="font-serif text-xl text-gold-600 mb-6 tracking-wide">Explore</h3>
-              
               <ul className="space-y-4">
-                <li>
-                  <Link
-                    to="/shop"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Shop
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/about"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    About
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/education/diamond"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Diamond Guide
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/education/gold"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Gold Guide
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/privacy-policy"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Privacy Policy
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/refund-policy"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Refund Policy
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/shipping-policy"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Shipping Policy
-                  </Link>
-                </li>
-
-                <li>
-                  <Link
-                    to="/terms-and-conditions"
-                    className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest"
-                  >
-                    Terms & Conditions
-                  </Link>
-                </li>
+                <li><Link to="/shop" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Shop</Link></li>
+                <li><Link to="/about" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">About</Link></li>
+                <li><Link to="/education/diamond" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Diamond Guide</Link></li>
+                <li><Link to="/education/gold" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Gold Guide</Link></li>
+                <li><Link to="/privacy-policy" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Privacy Policy</Link></li>
+                <li><Link to="/refund-policy" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Refund Policy</Link></li>
+                <li><Link to="/shipping-policy" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Shipping Policy</Link></li>
+                <li><Link to="/terms-and-conditions" className="text-charcoal hover:text-gold-600 transition text-sm uppercase tracking-widest">Terms & Conditions</Link></li>
               </ul>
             </div>
 

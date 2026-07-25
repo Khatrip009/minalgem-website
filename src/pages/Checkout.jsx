@@ -1,17 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCart } from '../api/cart';
+import { supabase } from '../lib/supabase';
 import { getAddresses } from '../api/profiles.api';
-import {
-  getCheckoutSummary,
-  placeOrder,
-  applyPromoCode,
-  createPaymentOrder,   // ✅ new
-  verifyPayment,        // ✅ new
-} from '../api/checkout';
-import { useAuth } from '../context/AuthContext';
 import { getProductBySlug } from '../api/products';
 import { getImageUrl } from '../utils/imageUrl';
+import { useAuth } from '../context/AuthContext';
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -19,6 +12,7 @@ export default function Checkout() {
 
   // Cart
   const [cart, setCart] = useState(null);
+  const [cartItems, setCartItems] = useState([]);
   const [loadingCart, setLoadingCart] = useState(true);
 
   // Addresses
@@ -37,60 +31,76 @@ export default function Checkout() {
   const [promoError, setPromoError] = useState('');
   const [promoApplying, setPromoApplying] = useState(false);
 
-  // Order & payment
+  // Order placement
   const [placingOrder, setPlacingOrder] = useState(false);
-  const [orderId, setOrderId] = useState(null);
   const [orderPlaced, setOrderPlaced] = useState(false);
-  const [paymentDone, setPaymentDone] = useState(false);
+  const [orderId, setOrderId] = useState(null);
 
-  // Product details (fetched from API)
+  // Product details fetched from Supabase
   const [products, setProducts] = useState({});
 
-  // Load cart & addresses on mount
-  useEffect(() => {
+  // --------------- Cart fetching (Supabase) ---------------
+  const getOrCreateCart = async (userId, visitorId) => {
+    let query = supabase
+      .from('carts')
+      .select('*, cart_items (*)')
+      .eq('status', 'active');
+
+    if (userId) query = query.eq('user_id', userId);
+    else if (visitorId) query = query.eq('visitor_id', visitorId);
+    else return null;
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+
+    const newCart = {
+      user_id: userId || null,
+      visitor_id: visitorId || null,
+      status: 'active',
+      currency: 'INR',
+      subtotal: 0,
+      discount_total: 0,
+      tax_total: 0,
+      shipping_total: 0,
+      grand_total: 0,
+    };
+    const { data: created, error: createErr } = await supabase
+      .from('carts')
+      .insert([newCart])
+      .select('*, cart_items (*)')
+      .single();
+    if (createErr) throw createErr;
+    return created;
+  };
+
+  const loadCartAndAddresses = async () => {
     if (!user) {
       navigate('/login', { state: { from: '/checkout' } });
       return;
     }
-    loadCartAndAddresses();
-  }, [user]);
-
-  // Fetch product details when cart items change
-  useEffect(() => {
-    if (!cart?.items?.length) return;
-    const slugs = cart.items
-      .map(item => item.product_slug || item.slug)
-      .filter(Boolean);
-    const uniqueSlugs = [...new Set(slugs)];
-    Promise.all(
-      uniqueSlugs.map(slug =>
-        getProductBySlug(slug)
-          .then(res => (res.ok ? { [slug]: res.product } : {}))
-          .catch(() => ({}))
-      )
-    ).then(results => {
-      const merged = Object.assign({}, ...results);
-      setProducts(prev => ({ ...prev, ...merged }));
-    }).catch(console.error);
-  }, [cart?.items]);
-
-  const loadCartAndAddresses = async () => {
     setError('');
+    setLoadingCart(true);
+    setAddressLoading(true);
+
     try {
-      const cartRes = await getCart();
-      if (!cartRes.ok || !cartRes.cart || !cartRes.cart.items?.length) {
+      if (!localStorage.getItem('visitor_id')) {
+        localStorage.setItem('visitor_id', crypto.randomUUID());
+      }
+      const visitorId = localStorage.getItem('visitor_id');
+
+      const cartData = await getOrCreateCart(user.id, visitorId);
+      if (!cartData || !cartData.cart_items?.length) {
         navigate('/cart');
         return;
       }
-      setCart(cartRes.cart);
+      setCart(cartData);
+      setCartItems(cartData.cart_items);
 
-      const addrRes = await getAddresses();
-      if (addrRes.ok) {
-        const list = addrRes.addresses || [];
-        setAddresses(list);
-        const def = list.find(a => a.is_default_shipping) || list[0] || null;
-        if (def) setSelectedAddressId(def.id);
-      }
+      const addrList = await getAddresses();
+      setAddresses(addrList);
+      const def = addrList.find(a => a.is_default_shipping) || addrList[0] || null;
+      if (def) setSelectedAddressId(def.id);
     } catch (err) {
       console.error(err);
       setError('Unable to load checkout data. Please refresh.');
@@ -100,59 +110,97 @@ export default function Checkout() {
     }
   };
 
-  // Re‑fetch summary whenever address or cart changes
+  useEffect(() => { loadCartAndAddresses(); }, [user]);
+
+  // Fetch product details when cart items change
   useEffect(() => {
-    if (!cart?.id || !selectedAddressId) return;
-    fetchSummary();
-  }, [cart?.id, selectedAddressId]);
+    if (!cartItems.length) return;
+    const slugs = cartItems.map(item => item.product_slug).filter(Boolean);
+    const uniqueSlugs = [...new Set(slugs)];
+    Promise.all(
+      uniqueSlugs.map(slug =>
+        getProductBySlug(slug)
+          .then(product => ({ [slug]: product }))
+          .catch(() => ({}))
+      )
+    ).then(results => {
+      const merged = Object.assign({}, ...results);
+      setProducts(prev => ({ ...prev, ...merged }));
+    }).catch(console.error);
+  }, [cartItems]);
 
-  const fetchSummary = async () => {
+  // Summary calculation
+  const computeSummary = async () => {
+    if (!cart || !selectedAddressId) return;
     setSummaryLoading(true);
-    setError('');
     try {
-      const addr = addresses.find(a => a.id === selectedAddressId);
-      const payload = addr
-        ? {
-            full_name: addr.full_name,
-            phone: addr.phone,
-            line1: addr.line1,
-            line2: addr.line2,
-            city: addr.city,
-            state: addr.state,
-            postal_code: addr.postal_code,
-            country: addr.country,
-          }
-        : null;
-
-      const res = await getCheckoutSummary(cart.id, payload);
-      if (res.ok) {
-        setSummary(res);
+      const subtotal = cartItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
+      let shippingCost = 0;
+      const { data: shippingRules } = await supabase.from('shipping_rules').select('*').eq('active', true).limit(1);
+      if (shippingRules && shippingRules.length > 0) {
+        const rule = shippingRules[0];
+        if (rule.type === 'flat') shippingCost = Number(rule.amount);
+        else if (rule.type === 'order_value' && subtotal < (rule.min_order_value || 0)) shippingCost = Number(rule.amount);
       } else {
-        setError('Could not load order summary.');
+        shippingCost = subtotal > 10000 ? 0 : 250;
       }
+      let taxAmount = 0;
+      const { data: taxRates } = await supabase.from('tax_rates').select('*').eq('is_active', true).eq('country', 'IN');
+      if (taxRates && taxRates.length > 0) {
+        const totalRate = taxRates.reduce((sum, tr) => sum + Number(tr.rate), 0);
+        taxAmount = (subtotal * totalRate) / 100;
+      }
+      let discount = 0;
+      if (appliedPromo) {
+        if (appliedPromo.type === 'percent') discount = (subtotal * Number(appliedPromo.value)) / 100;
+        else if (appliedPromo.type === 'fixed') discount = Number(appliedPromo.value);
+        else if (appliedPromo.type === 'free_shipping') shippingCost = 0;
+      }
+      const grandTotal = subtotal - discount + shippingCost + taxAmount;
+      setSummary({
+        subtotal, discount, shipping: shippingCost, tax: taxAmount,
+        grandTotal: Math.round(grandTotal * 100) / 100,
+      });
     } catch (err) {
       console.error(err);
-      setError('Failed to load order summary.');
+      setError('Could not calculate order summary.');
     } finally {
       setSummaryLoading(false);
     }
   };
 
-  // Apply promo code
+  useEffect(() => {
+    if (cart && selectedAddressId) computeSummary();
+  }, [cart, selectedAddressId, appliedPromo]);
+
+  // --------------- Promo code handling ---------------
   const handleApplyPromo = async () => {
     if (!promoCode.trim()) return;
     setPromoApplying(true);
     setPromoError('');
     try {
-      const subtotal = summary?.amounts?.subtotal || 0;
-      const res = await applyPromoCode(promoCode.trim().toUpperCase(), subtotal);
-      if (res.ok && res.promo) {
-        setAppliedPromo(res.promo);
-        setPromoError('');
-      } else {
-        setPromoError(res.error || 'Invalid promo code');
+      const { data: promo, error: promoErr } = await supabase
+        .from('promo_codes')
+        .select('*')
+        .eq('code', promoCode.trim().toUpperCase())
+        .eq('is_active', true)
+        .single();
+
+      if (promoErr || !promo) {
+        setPromoError('Invalid promo code');
         setAppliedPromo(null);
+        return;
       }
+
+      const subtotal = summary?.subtotal || 0;
+      if (subtotal < Number(promo.min_order)) {
+        setPromoError(`Minimum order of ₹${promo.min_order} required`);
+        setAppliedPromo(null);
+        return;
+      }
+
+      setAppliedPromo(promo);
+      setPromoError('');
     } catch (err) {
       console.error(err);
       setPromoError('Could not apply promo');
@@ -168,39 +216,47 @@ export default function Checkout() {
     setPromoError('');
   };
 
-  // Compute final totals
-  const getFinalAmounts = () => {
-    if (!summary) return null;
-    const base = summary.amounts;
-    let subtotal = base.subtotal;
-    let discount = base.discount_total || 0;
-    let shipping = base.shipping_total || 0;
-    let tax = base.tax_total || 0;
-
-    if (appliedPromo) {
-      if (appliedPromo.type === 'percent') {
-        discount += (subtotal * Number(appliedPromo.value || 0)) / 100;
-      } else if (appliedPromo.type === 'fixed') {
-        discount += Number(appliedPromo.value || 0);
-      } else if (appliedPromo.type === 'free_shipping') {
-        shipping = 0;
-      }
-    }
-    const grand = subtotal - discount + shipping + tax;
-    return { subtotal, discount, shipping, tax, grandTotal: Number(grand.toFixed(2)) };
-  };
-
-  const finalAmounts = getFinalAmounts();
-
-  // ===== PLACE ORDER + INITIATE RAZORPAY PAYMENT =====
+  // --------------- Place Order (with customer fix & Razorpay) ---------------
   const handlePlaceOrder = async () => {
-    if (!selectedAddressId) {
+    if (!selectedAddressId || !cart || !summary) {
       alert('Please select a shipping address.');
       return;
     }
+
     setPlacingOrder(true);
     setError('');
+
     try {
+      // ----- Ensure customer record exists -----
+      let customerId;
+      const { data: existingCustomer, error: custLookupErr } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (custLookupErr) throw custLookupErr;
+
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+      } else {
+        const addr = addresses.find(a => a.id === selectedAddressId);
+        const { data: newCustomer, error: custCreateErr } = await supabase
+          .from('customers')
+          .insert([{
+            user_id: user.id,
+            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Customer',
+            email: user.email,
+            phone: addr?.phone || '',
+          }])
+          .select()
+          .single();
+
+        if (custCreateErr) throw custCreateErr;
+        customerId = newCustomer.id;
+      }
+
+      // ----- Create order -----
       const addr = addresses.find(a => a.id === selectedAddressId);
       const shippingPayload = {
         full_name: addr.full_name,
@@ -212,83 +268,132 @@ export default function Checkout() {
         postal_code: addr.postal_code,
         country: addr.country,
       };
-      // 1. Place the order
-      const res = await placeOrder(
-        cart.id,
-        shippingPayload,
-        shippingPayload,
-        '',
-        appliedPromo?.code || null
-      );
-      if (!res.ok || !res.order) {
-        setError(res.error || 'Could not place order.');
+
+      const orderNumber = 'OFF-' + Date.now().toString(36).toUpperCase();
+      const { data: orderData, error: orderErr } = await supabase
+        .from('orders')
+        .insert([{
+          order_number: orderNumber,
+          user_id: user.id,
+          customer_id: customerId,   // ✅ real customer ID
+          status: 'pending',
+          subtotal: summary.subtotal,
+          shipping_cost: summary.shipping,
+          tax_amount: summary.tax,
+          discount_amount: summary.discount,
+          grand_total: summary.grandTotal,
+          currency: 'INR',
+          shipping_address: shippingPayload,
+          billing_address: shippingPayload,
+          customer_note: '',
+        }])
+        .select()
+        .single();
+
+      if (orderErr) throw orderErr;
+      setOrderId(orderData.id);
+
+      // Insert order items
+      const itemsToInsert = cartItems.map(item => ({
+        order_id: orderData.id,
+        product_id: item.product_id,
+        product_title: item.product_title,
+        product_slug: item.product_slug,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total_price: item.quantity * item.unit_price,
+        currency: 'INR',
+        discount_amount: 0,
+        tax_amount: (item.unit_price * item.quantity * (summary.tax / summary.subtotal)) || 0,
+        metadata: item.metadata || {},
+      }));
+      await supabase.from('order_items').insert(itemsToInsert);
+
+      // Insert invoice
+      const invoiceNumber = 'INV-' + orderNumber + '-' + Math.random().toString(36).substring(2, 6);
+      await supabase.from('invoices').insert([{
+        order_id: orderData.id,
+        invoice_number: invoiceNumber,
+        status: 'unpaid',
+        subtotal: summary.subtotal,
+        tax_amount: summary.tax,
+        shipping_cost: summary.shipping,
+        total: summary.grandTotal,
+        currency: 'INR',
+      }]);
+
+      // Insert tax lines
+      if (summary.tax > 0) {
+        await supabase.from('order_tax_lines').insert([{
+          order_id: orderData.id,
+          tax_type: 'CGST+SGST',
+          tax_rate: (summary.tax / summary.subtotal) * 100,
+          taxable_amount: summary.subtotal,
+          tax_amount: summary.tax,
+        }]);
+      }
+
+      // Create Razorpay order
+      const amountInPaise = Math.round(summary.grandTotal * 100);
+      const { data: razorpayRes, error: razorpayErr } = await supabase.functions.invoke('create-razorpay-order', {
+        body: { order_id: orderData.id, amount: amountInPaise },
+      });
+
+      if (razorpayErr || !razorpayRes?.razorpay_order_id) {
+        setError('Could not initiate payment. Please retry.');
         return;
       }
 
-      const placedOrderId = res.order.id;
-      setOrderId(placedOrderId);
-      setOrderPlaced(true);
-
-      // 2. Create Razorpay order
-      const paymentRes = await createPaymentOrder(placedOrderId);
-      if (!paymentRes.ok) {
-        setError('Could not initialise payment. Please retry.');
-        return;
-      }
-
-      // 3. Open Razorpay checkout modal
+      // Open Razorpay checkout
       const options = {
-        key: paymentRes.key_id,
-        amount: paymentRes.amount,
-        currency: paymentRes.currency,
-        name: 'MINALGEMS',
-        description: `Order ${placedOrderId.slice(0, 8)}`,
-        order_id: paymentRes.razorpay_order_id,
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: amountInPaise,
+        currency: 'INR',
+        name: 'Minal Gems',
+        description: `Order ${orderData.order_number}`,
+        order_id: razorpayRes.razorpay_order_id,
         handler: async function (response) {
-          try {
-            const verifyRes = await verifyPayment({
+          const { data: verifyRes, error: verifyErr } = await supabase.functions.invoke('verify-payment', {
+            body: {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
-              order_id: placedOrderId,
-            });
-            if (verifyRes.ok) {
-              setPaymentDone(true);
-              setTimeout(() => navigate(`/order-success/${placedOrderId}`), 1000);
-            } else {
-              setError('Payment verification failed. Please contact support.');
-            }
-          } catch (e) {
-            console.error(e);
-            setError('Payment verification error.');
+              order_id: orderData.id,
+            },
+          });
+
+          if (verifyErr || !verifyRes?.success) {
+            setError('Payment verification failed. Please contact support.');
+            return;
           }
+
+          setOrderPlaced(true);
+          navigate(`/order-success/${orderData.id}`);
         },
         modal: {
           ondismiss: function () {
-            setError('Payment was cancelled. You can retry by placing the order again.');
+            setError('Payment cancelled. You can retry.');
           },
         },
         prefill: {
           name: user?.full_name || '',
           email: user?.email || '',
         },
-        notes: {
-          order_id: placedOrderId,
-        },
-        theme: {
-          color: '#C68A1A',   // your gold theme
-        },
+        theme: { color: '#B8860B' },
       };
+
       const razorpayInstance = new window.Razorpay(options);
       razorpayInstance.open();
+
     } catch (err) {
       console.error(err);
-      setError('Failed to place order.');
+      setError('Failed to place order. Please try again.');
     } finally {
       setPlacingOrder(false);
     }
   };
 
+  // --------------- Render (unchanged) ---------------
   if (loadingCart) {
     return (
       <div className="min-h-screen bg-cream flex items-center justify-center">
@@ -308,8 +413,6 @@ export default function Checkout() {
     );
   }
 
-  const cartItems = cart.items || [];
-
   return (
     <div className="min-h-screen bg-cream py-16">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -324,7 +427,7 @@ export default function Checkout() {
         )}
 
         <div className="grid lg:grid-cols-3 gap-10">
-          {/* Left Column: Address & Items */}
+          {/* Left Column */}
           <div className="lg:col-span-2 space-y-8">
             {/* Address Selection */}
             <div className="bg-white border border-gold-200 p-6 rounded-sm shadow-sm">
@@ -366,22 +469,22 @@ export default function Checkout() {
               )}
             </div>
 
-            {/* Order Items – using product details from API */}
+            {/* Order Items */}
             <div className="bg-white border border-gold-200 p-6 rounded-sm shadow-sm">
               <h2 className="font-serif text-2xl text-gold-600 mb-4">Your Items</h2>
               <div className="space-y-6">
                 {cartItems.map(item => {
-                  const slug = item.product_slug || item.slug;
+                  const slug = item.product_slug;
                   const product = products[slug];
                   const price = Number(item.unit_price || 0);
                   const qty = Number(item.quantity || 1);
-                  const imageUrl = product?.assets?.[0]?.url
-                    ? getImageUrl(product.assets[0].url)
+                  const imageUrl = product?.product_assets?.[0]?.url
+                    ? getImageUrl(product.product_assets[0].url)
                     : '/placeholder.jpg';
-                  const title = product?.title || item.product_title || item.title;
+                  const title = product?.title || item.product_title;
 
                   return (
-                    <div key={item.item_id || item.id} className="flex items-center gap-5 border-b border-gold-100 pb-4">
+                    <div key={item.id} className="flex items-center gap-5 border-b border-gold-100 pb-4">
                       <div className="w-20 h-20 flex-shrink-0 border border-gold-100">
                         <img
                           src={imageUrl}
@@ -403,7 +506,7 @@ export default function Checkout() {
             </div>
           </div>
 
-          {/* Right Column: Totals, Promo, Place Order */}
+          {/* Right Column */}
           <div className="bg-white border border-gold-200 p-6 rounded-sm shadow-sm h-fit">
             <h2 className="font-serif text-2xl text-gold-600 mb-6">Order Summary</h2>
 
@@ -447,36 +550,35 @@ export default function Checkout() {
             {/* Amounts */}
             {summaryLoading ? (
               <p className="text-sm text-charcoal">Calculating...</p>
-            ) : finalAmounts ? (
+            ) : summary ? (
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between text-charcoal">
                   <span className="uppercase tracking-widest">Subtotal</span>
-                  <span>₹{finalAmounts.subtotal.toLocaleString('en-IN')}</span>
+                  <span>₹{summary.subtotal.toLocaleString('en-IN')}</span>
                 </div>
-                {finalAmounts.discount > 0 && (
+                {summary.discount > 0 && (
                   <div className="flex justify-between text-green-700">
                     <span className="uppercase tracking-widest">Discount</span>
-                    <span>-₹{finalAmounts.discount.toLocaleString('en-IN')}</span>
+                    <span>-₹{summary.discount.toLocaleString('en-IN')}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-charcoal">
                   <span className="uppercase tracking-widest">Shipping</span>
-                  <span>{finalAmounts.shipping === 0 ? 'Free' : `₹${finalAmounts.shipping}`}</span>
+                  <span>{summary.shipping === 0 ? 'Free' : `₹${summary.shipping}`}</span>
                 </div>
                 <div className="flex justify-between text-charcoal">
                   <span className="uppercase tracking-widest">Tax</span>
-                  <span>₹{finalAmounts.tax.toLocaleString('en-IN')}</span>
+                  <span>₹{summary.tax.toLocaleString('en-IN')}</span>
                 </div>
                 <hr className="border-gold-200" />
                 <div className="flex justify-between text-lg font-serif text-gold-700">
                   <span>Grand Total</span>
-                  <span>₹{finalAmounts.grandTotal.toLocaleString('en-IN')}</span>
+                  <span>₹{summary.grandTotal.toLocaleString('en-IN')}</span>
                 </div>
               </div>
             ) : null}
 
-            {/* Place Order button (launches Razorpay) */}
-            {!paymentDone && (
+            {!orderPlaced && (
               <button
                 onClick={handlePlaceOrder}
                 disabled={placingOrder || !selectedAddressId}
@@ -486,9 +588,9 @@ export default function Checkout() {
               </button>
             )}
 
-            {paymentDone && (
+            {orderPlaced && (
               <div className="mt-6 text-center text-green-700 font-serif text-lg">
-                Payment successful! Redirecting...
+                Order placed! Redirecting...
               </div>
             )}
           </div>

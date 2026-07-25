@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { getProducts } from '../api/products';
 import { getCategories } from '../api/categories';
+import { getImageUrl } from '../utils/imageUrl';
 import { useCurrency } from '../context/CurrencyContext';
 
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
-
 export default function Shop() {
-  const { currency, convertPrice, loading: currencyLoading } = useCurrency();
+  const { currency, convertPrice } = useCurrency();
   const [products, setProducts] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [categories, setCategories] = useState([]);
@@ -22,28 +21,35 @@ export default function Shop() {
 
   // Fetch categories
   useEffect(() => {
-    getCategories({ include_counts: true })
-      .then(res => {
-        if (res.ok) setCategories(res.categories);
-      })
+    getCategories()
+      .then(data => setCategories(data || []))
       .catch(console.error);
   }, []);
 
   // Fetch products when filters or page change
   useEffect(() => {
     setLoading(true);
-    const params = { page: currentPage };
+    const params = { page: currentPage, limit: 12 };
     if (categoryId) params.category = categoryId;
     if (searchTerm) params.search = searchTerm;
 
     getProducts(params)
       .then(res => {
-        if (res.ok) {
-          setProducts(res.products);
-          setPagination(res.pagination);
-        }
+        // Safe defaults – prevent "length of undefined" error
+        const productsData = res?.products ?? [];
+        const total = res?.total ?? 0;
+        const page = res?.page ?? 1;
+        const pages = res?.pages ?? 1;
+
+        setProducts(productsData);
+        setPagination({ page, pages, total });
       })
-      .catch(console.error)
+      .catch(err => {
+        console.error(err);
+        // Fallback to empty state on error
+        setProducts([]);
+        setPagination({ page: 1, pages: 1, total: 0 });
+      })
       .finally(() => setLoading(false));
   }, [currentPage, categoryId, searchTerm]);
 
@@ -96,12 +102,20 @@ export default function Shop() {
     }
   };
 
-  // Helper: format price with currency symbol and decimals
+  // Helper: format price with currency symbol
   const formatPrice = (priceInINR) => {
     if (!priceInINR) return null;
     const converted = convertPrice(priceInINR);
     const symbol = getCurrencySymbol(currency);
+    if (currency === 'AED') return `${converted.toLocaleString()} ${symbol}`;
     return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Helper: get product image from assets
+  const getProductImage = (product) => {
+    const assets = product.product_assets || [];
+    const primary = assets.find(a => a.is_primary && a.asset_type === 'image') || assets.find(a => a.asset_type === 'image') || assets[0];
+    return primary ? getImageUrl(primary.url) : '/placeholder.jpg';
   };
 
   return (
@@ -163,7 +177,7 @@ export default function Shop() {
                       : 'border-gold-300 text-gold-600 hover:bg-gold-50'
                   }`}
                 >
-                  {cat.name} ({cat.product_count || 0})
+                  {cat.name}
                 </button>
               ))}
             </div>
@@ -191,9 +205,6 @@ export default function Shop() {
                   }`}
                 >
                   {cat.name}
-                  {cat.product_count !== undefined && (
-                    <span className="text-xs text-gold-500 ml-2">({cat.product_count})</span>
-                  )}
                 </button>
               ))}
             </nav>
@@ -220,11 +231,12 @@ export default function Shop() {
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                 {products.map(product => {
                   const priceDisplay = product.price ? formatPrice(product.price) : null;
+                  const imageUrl = getProductImage(product);
                   return (
                     <Link to={`/product/${product.slug}`} key={product.id} className="group block">
                       <div className="aspect-[3/4] overflow-hidden bg-white border border-gold-100 hover:shadow-lg transition-shadow duration-500">
                         <img
-                          src={product.primary_image ? `${IMAGE_BASE}${product.primary_image}` : '/placeholder.jpg'}
+                          src={imageUrl}
                           alt={product.title}
                           className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-out"
                         />
@@ -232,13 +244,7 @@ export default function Shop() {
                       <div className="mt-4 text-center">
                         <h3 className="font-serif text-lg text-charcoal tracking-wide">{product.title}</h3>
                         <p className="text-sm text-gold-600 mt-1">
-                          {currencyLoading ? (
-                            <span className="inline-block w-12 h-4 bg-gold-100 animate-pulse rounded"></span>
-                          ) : priceDisplay ? (
-                            priceDisplay
-                          ) : (
-                            'Price on Request'
-                          )}
+                          {priceDisplay || 'Price on Request'}
                         </p>
                       </div>
                     </Link>

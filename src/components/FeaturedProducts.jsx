@@ -6,15 +6,7 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 import { getCategories } from '../api/categories';
 import { getProducts } from '../api/products';
-import apiClient from '../api/client';
-
-const IMAGE_BASE = 'https://apiminalgems.exotech.co.in';
-
-function getFullUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  return `${IMAGE_BASE}${url}`;
-}
+import { getImageUrl } from '../utils/imageUrl';   // ✅ unified storage URL helper
 
 export default function FeaturedProducts({ categoryLimit = 3, productLimit = 3 }) {
   const [sections, setSections] = useState([]);
@@ -23,33 +15,20 @@ export default function FeaturedProducts({ categoryLimit = 3, productLimit = 3 }
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const catRes = await getCategories({ include_counts: true, limit: categoryLimit });
-        if (!catRes.ok) return;
-        const categories = catRes.categories;
+        // getCategories now returns an array
+        const categories = await getCategories();
+        if (!categories?.length) return;
+        const limited = categories.slice(0, categoryLimit);
 
-        const sectionPromises = categories.map(async (cat) => {
-          const productRes = await getProducts({
+        const sectionPromises = limited.map(async (cat) => {
+          const { products } = await getProducts({
             category: cat.id,
             limit: productLimit,
           });
-          const products = productRes.ok ? productRes.products : [];
-
-          // For each product, fetch its assets (images/videos)
-          const productsWithAssets = await Promise.all(
-            products.map(async (product) => {
-              try {
-                const assetsRes = await apiClient.get(`/masters/products/${product.id}/assets`);
-                if (assetsRes.data.ok) {
-                  return { ...product, assets: assetsRes.data.assets };
-                }
-              } catch (e) { /* ignore */ }
-              return { ...product, assets: [] };
-            })
-          );
-
+          // products already contain 'product_assets' from the Supabase query
           return {
             category: cat,
-            products: productsWithAssets,
+            products: products || [],
           };
         });
 
@@ -103,38 +82,46 @@ function ProductCard({ product }) {
     nextEl: `next-${product.id}`,
   };
 
-  const media = (product.assets || [])
+  // Use product_assets directly from the product object
+  const media = (product.product_assets || [])
     .filter(a => a.asset_type === 'image' || a.asset_type === 'video')
-    .slice(0, 4); // limit to 4 items for performance
+    .slice(0, 4);
 
-const renderSlide = (item, idx) => {
-  const src = getFullUrl(item.url);
-  if (!src) {
-    return <img src="/placeholder.jpg" alt="No media" className="w-full h-full object-cover" />;
-  }
-  if (item.asset_type === 'video') {
+  const renderSlide = (item, idx) => {
+    const src = getImageUrl(item.url);
+    if (!src) {
+      return <img src="/placeholder.jpg" alt="No media" className="w-full h-full object-cover" />;
+    }
+    if (item.asset_type === 'video') {
+      return (
+        <video
+          className="w-full h-full object-cover"
+          muted
+          autoPlay
+          loop
+          playsInline
+          poster={item.thumbnail_url ? getImageUrl(item.thumbnail_url) : undefined}
+        >
+          <source src={src} type="video/mp4" />
+        </video>
+      );
+    }
     return (
-      <video
+      <img
+        src={src}
+        alt={`${product.title} ${idx + 1}`}
         className="w-full h-full object-cover"
-        muted
-        autoPlay
-        loop
-        playsInline
-        poster={getFullUrl(item.thumbnail_url) || undefined}
-      >
-        <source src={src} type="video/mp4" />
-      </video>
+        onError={(e) => { e.target.src = '/placeholder.jpg'; }}
+      />
     );
-  }
-  return (
-    <img
-      src={src}
-      alt={`${product.title} ${idx + 1}`}
-      className="w-full h-full object-cover"
-      onError={(e) => { e.target.src = '/placeholder.jpg'; }}
-    />
-  );
-};
+  };
+
+  // Fallback primary image (if any asset is marked is_primary)
+  const primaryAsset =
+    media.find(a => a.is_primary && a.asset_type === 'image') ||
+    media.find(a => a.asset_type === 'image') ||
+    media[0];
+  const fallbackImage = primaryAsset ? getImageUrl(primaryAsset.url) : '/placeholder.jpg';
 
   return (
     <Link
@@ -158,24 +145,13 @@ const renderSlide = (item, idx) => {
                   {renderSlide(item, idx)}
                 </SwiperSlide>
               ))}
-              {media.length === 0 && (
-                <SwiperSlide>
-                  <img
-                    src={getImageUrl(product.primary_image)}
-                    alt={product.title}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { e.target.src = '/placeholder.jpg'; }}
-                  />
-                </SwiperSlide>
-              )}
             </Swiper>
 
-            {/* Navigation arrows – visible on hover */}
             {media.length > 1 && (
               <>
                 <button
                   className={`${uniqueNav.prevEl} absolute left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white/80 text-charcoal hover:bg-white shadow opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center`}
-                  onClick={(e) => e.preventDefault()} // prevent link
+                  onClick={(e) => e.preventDefault()}
                   aria-label="Previous"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -184,7 +160,7 @@ const renderSlide = (item, idx) => {
                 </button>
                 <button
                   className={`${uniqueNav.nextEl} absolute right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-white/80 text-charcoal hover:bg-white shadow opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center`}
-                  onClick={(e) => e.preventDefault()} // prevent link
+                  onClick={(e) => e.preventDefault()}
                   aria-label="Next"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -195,15 +171,13 @@ const renderSlide = (item, idx) => {
             )}
           </>
         ) : (
-          // Fallback to primary image if no assets
           <img
-            src={getImageUrl(product.primary_image)}
+            src={fallbackImage}
             alt={product.title}
             className="w-full h-full object-cover"
             onError={(e) => { e.target.src = '/placeholder.jpg'; }}
           />
         )}
-        {/* subtle overlay on hover */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none" />
       </div>
       <div className="mt-4 text-center">
@@ -214,9 +188,4 @@ const renderSlide = (item, idx) => {
       </div>
     </Link>
   );
-}
-
-// helper for image fallback
-function getImageUrl(url) {
-  return getFullUrl(url);
 }

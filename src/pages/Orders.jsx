@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getMyOrders, downloadOrderInvoice } from '../api/orders.api';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 
@@ -60,8 +60,28 @@ export default function Orders() {
   const loadOrders = async () => {
     setLoading(true);
     try {
-      const res = await getMyOrders();
-      if (res.ok) setOrders(res.orders || []);
+      // Fetch orders for the current user, with items count and payments
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          order_items ( quantity ),
+          order_payments ( status )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Enrich each order with computed fields
+      const enriched = data.map(order => ({
+        ...order,
+        items_count: order.order_items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0,
+        payment_status: order.order_payments?.[0]?.status || 'pending',
+        placed_at: order.created_at,
+      }));
+
+      setOrders(enriched);
     } catch (err) {
       console.error('Failed to load orders:', err);
     } finally {
@@ -70,6 +90,10 @@ export default function Orders() {
   };
 
   const handleDownloadInvoice = async (orderId) => {
+    // The invoice PDF generator is available in the admin project.
+    // For now, we show an alert; you can later copy the utility and enable it.
+    alert('Invoice download will be available soon.');
+    /*
     setDownloadingId(orderId);
     try {
       const blob = await downloadOrderInvoice(orderId);
@@ -87,6 +111,7 @@ export default function Orders() {
     } finally {
       setDownloadingId(null);
     }
+    */
   };
 
   if (loading) {
@@ -125,7 +150,7 @@ export default function Orders() {
           <div className="space-y-4">
             {orders.map(order => {
               const orderAmount = Number(order.grand_total || 0);
-              const orderId = order.id || order.order_id;
+              const orderId = order.id;
               return (
                 <div
                   key={orderId}
@@ -146,7 +171,7 @@ export default function Orders() {
                             })
                           : '—'}
                         {' · '}
-                        {order.items_count || 0} items
+                        {order.items_count} items
                       </p>
                       <div className="flex flex-wrap gap-2 mt-2">
                         <span

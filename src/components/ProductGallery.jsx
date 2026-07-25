@@ -1,17 +1,10 @@
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination } from 'swiper/modules';
 import { useCurrency } from '../context/CurrencyContext';
+import { getImageUrl } from '../utils/imageUrl';   // ✅ unified storage helper
 import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
-
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
-
-function getFullUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  return `${IMAGE_BASE}${url}`;
-}
 
 export default function ProductGallery({ assets, priceInINR, title }) {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();
@@ -74,10 +67,9 @@ export default function ProductGallery({ assets, priceInINR, title }) {
           pagination={{ clickable: true }}
           loop={media.length > 1}
           className="aspect-square w-full border border-gold-100"
-          // Optional: adjust breakpoints for slides per view if needed
         >
           {media.map((item, idx) => {
-            const src = getFullUrl(item.url);
+            const src = getImageUrl(item.url);    // ✅ uses storage URL
             if (!src) {
               return (
                 <SwiperSlide
@@ -102,7 +94,7 @@ export default function ProductGallery({ assets, priceInINR, title }) {
                     loop
                     playsInline
                     className="w-full h-full object-contain"
-                    poster={getFullUrl(item.thumbnail_url) || undefined}
+                    poster={item.thumbnail_url ? getImageUrl(item.thumbnail_url) : undefined}
                   >
                     <source src={src} type="video/mp4" />
                   </video>
@@ -125,12 +117,7 @@ export default function ProductGallery({ assets, priceInINR, title }) {
           })}
         </Swiper>
 
-        {/* ---------- Navigation arrows ---------- */}
-        {/* 
-          Fully responsive approach:
-          - On small screens (mobile): always visible with reduced opacity
-          - On larger screens: visible only on hover (group-hover), fade in/out 
-        */}
+        {/* Navigation arrows (responsive) */}
         <div className="swiper-button-prev !text-gold-600 !opacity-60 sm:!opacity-0 sm:group-hover:!opacity-100 transition-opacity after:!text-xl sm:after:!text-2xl" />
         <div className="swiper-button-next !text-gold-600 !opacity-60 sm:!opacity-0 sm:group-hover:!opacity-100 transition-opacity after:!text-xl sm:after:!text-2xl" />
       </div>

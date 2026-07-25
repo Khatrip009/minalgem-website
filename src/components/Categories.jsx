@@ -1,26 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getCategories } from '../api/categories';
-
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
+import { getImageUrl } from '../utils/imageUrl';   // ✅ use custom storage
 
 export default function Categories({ limit }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const params = { include_counts: true };
-    if (limit) params.limit = limit;
-
-    getCategories(params)
-      .then(res => {
-        if (res.ok) setCategories(res.categories || []);
+    // The new getCategories returns an array directly
+    getCategories()
+      .then(data => {
+        // If limit is set, slice the array
+        const list = data || [];
+        setCategories(limit ? list.slice(0, limit) : list);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [limit]);
 
-  // Don't render anything while loading or if no categories exist
   if (loading || categories.length === 0) return null;
 
   return (
@@ -32,7 +30,7 @@ export default function Categories({ limit }) {
           className="group relative aspect-[3/4] overflow-hidden bg-gray-100 border border-gold-100 hover:shadow-2xl transition-shadow duration-500"
         >
           <img
-            src={cat.image_url ? `${IMAGE_BASE}${cat.image_url}` : '/placeholder.jpg'}
+            src={cat.image_url ? getImageUrl(cat.image_url) : '/placeholder.jpg'}
             alt={cat.name}
             className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-out"
           />
@@ -41,9 +39,6 @@ export default function Categories({ limit }) {
             <h3 className="font-serif text-2xl text-white tracking-wide">
               {cat.name}
             </h3>
-            {cat.product_count !== undefined && (
-              <p className="text-sm text-gold-200 mt-1">{cat.product_count} Pieces</p>
-            )}
           </div>
         </Link>
       ))}

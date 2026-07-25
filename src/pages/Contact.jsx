@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { getProducts } from '../api/products';
 
 export default function Contact() {
@@ -19,10 +20,9 @@ export default function Contact() {
   // Fetch products for dropdown
   useEffect(() => {
     getProducts({ limit: 100 })
-      .then(res => {
-        if (res.ok) {
-          setProducts(res.products || []);
-        }
+      .then(data => {
+        // getProducts now returns an array directly
+        setProducts(data || []);
       })
       .catch(console.error)
       .finally(() => setLoadingProducts(false));
@@ -31,7 +31,6 @@ export default function Contact() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    // Clear previous status when user types
     if (submitStatus.message) setSubmitStatus({ type: '', message: '' });
   };
 
@@ -41,29 +40,33 @@ export default function Contact() {
     setSubmitStatus({ type: '', message: '' });
 
     try {
-      const response = await fetch('/api/leads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+      const { error } = await supabase
+        .from('leads')
+        .insert([{
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          company: formData.company,
+          country: formData.country,
+          product_interest: formData.product_interest,
+          message: formData.message,
+        }]);
+
+      if (error) throw error;
+
+      setSubmitStatus({ type: 'success', message: 'Thank you! We will get back to you shortly.' });
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        company: '',
+        country: '',
+        product_interest: '',
+        message: '',
       });
-      const data = await response.json();
-      if (data.ok) {
-        setSubmitStatus({ type: 'success', message: 'Thank you! We will get back to you shortly.' });
-        setFormData({
-          name: '',
-          email: '',
-          phone: '',
-          company: '',
-          country: '',
-          product_interest: '',
-          message: '',
-        });
-      } else {
-        setSubmitStatus({ type: 'error', message: data.error || 'Submission failed. Please try again.' });
-      }
     } catch (err) {
       console.error(err);
-      setSubmitStatus({ type: 'error', message: 'Network error. Please try again later.' });
+      setSubmitStatus({ type: 'error', message: 'Submission failed. Please try again.' });
     } finally {
       setSubmitting(false);
     }
@@ -227,9 +230,6 @@ export default function Contact() {
             </button>
           </form>
         </div>
-
-        {/* Optional: additional contact info */}
-        
       </div>
     </div>
   );
