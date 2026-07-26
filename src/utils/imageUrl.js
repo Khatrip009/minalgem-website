@@ -1,7 +1,7 @@
 // src/utils/imageUrl.js
 
 const DEV_PUBLIC_BASE = 'http://localhost:4900'
-const PROD_PUBLIC_BASE = 'https://storage.minalgem.com'
+const PROD_PUBLIC_BASE = 'https://files.minalgem.com'
 
 function getPublicBaseUrl() {
   return import.meta.env.PROD ? PROD_PUBLIC_BASE : DEV_PUBLIC_BASE
