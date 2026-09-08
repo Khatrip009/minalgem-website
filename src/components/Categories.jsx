@@ -4,7 +4,7 @@ import { getCategories } from '../api/categories';
 import { getImageUrl } from '../utils/imageUrl';   // 
 
 
-const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://apiminalgems.exotech.co.in';
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE || 'https://files.minalgem.com';
 
 
 export default function Categories({ limit }) {

@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getHeroSlides } from '../api/hero';
 import { getCategories } from '../api/categories';
 import { getProducts } from '../api/products';
 import { getImageUrl } from '../utils/imageUrl';
-import CategoryCarousel from '../components/CategoryCarousel';
 import { useCurrency } from '../context/CurrencyContext';
 
 const FALLBACK_HERO_IMAGES = [
@@ -14,6 +13,8 @@ const FALLBACK_HERO_IMAGES = [
   '/images/hero/hero4.jpg',
 ];
 
+const CATEGORY_PLACEHOLDER = '/placeholder.jpg'; // Ensure this exists in public/
+
 export default function Home() {
   const { currency, convertPrice, loading: currencyLoading } = useCurrency();
   const [heroSlides, setHeroSlides] = useState([]);
@@ -22,6 +23,7 @@ export default function Home() {
   const [heroImageLoaded, setHeroImageLoaded] = useState(false);
   const [categories, setCategories] = useState([]);
   const [categoryProducts, setCategoryProducts] = useState({});
+  const categoryScrollRef = useRef(null);
 
   // 1. Fetch hero slides
   useEffect(() => {
@@ -61,7 +63,6 @@ export default function Home() {
         safeCategories.forEach(cat => {
           getProducts({ category: cat.id, limit: 4 })
             .then(data => {
-              // data is the object returned by getProducts (with products array)
               const productList = data?.products || [];
               setCategoryProducts(prev => ({
                 ...prev,
@@ -70,7 +71,6 @@ export default function Home() {
             })
             .catch(err => {
               console.error(`Failed to fetch products for category ${cat.id}`, err);
-              // Set empty array so the UI doesn't break
               setCategoryProducts(prev => ({ ...prev, [cat.id]: [] }));
             });
         });
@@ -98,6 +98,14 @@ export default function Home() {
     const symbol = getCurrencySymbol(currency);
     if (currency === 'AED') return `${converted.toLocaleString()} ${symbol}`;
     return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  };
+
+  const scrollCategories = (direction) => {
+    const container = categoryScrollRef.current;
+    if (container) {
+      const scrollAmount = direction === 'left' ? -300 : 300;
+      container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
   };
 
   if (loading) {
@@ -139,19 +147,74 @@ export default function Home() {
         )}
       </section>
 
-      {/* ========== OUR CRAFT (Category Carousel) ========== */}
+      {/* ========== OUR CRAFT (Category Strip with Navigation) ========== */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24">
         <h2 className="font-serif text-3xl sm:text-4xl md:text-5xl text-gold-600 text-center mb-10 sm:mb-12 md:mb-16 tracking-widest">
           Our Craft
         </h2>
-        <CategoryCarousel />
+
+        {/* Carousel with prev/next buttons */}
+        <div className="relative">
+          {/* Left button */}
+          <button
+            onClick={() => scrollCategories('left')}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white/80 hover:bg-white text-gold-600 rounded-full p-2 shadow-md transition disabled:opacity-50"
+            aria-label="Previous categories"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+
+          {/* Scrollable category strip */}
+          <div
+            ref={categoryScrollRef}
+            className="flex overflow-x-auto gap-4 pb-4 scrollbar-hide scroll-smooth"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {categories.map(category => {
+              const imageUrl = category.image_url
+                ? getImageUrl(category.image_url)
+                : CATEGORY_PLACEHOLDER;
+              return (
+                <Link
+                  key={category.id}
+                  to={`/shop?category=${category.id}`}
+                  className="flex-shrink-0 w-40 sm:w-48 md:w-56 group block text-center"
+                >
+                  <div className="aspect-square overflow-hidden bg-white border border-gold-100 rounded-sm shadow-sm group-hover:shadow-md transition-shadow">
+                    <img
+                      src={imageUrl}
+                      alt={category.name}
+                      className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                    />
+                  </div>
+                  <h3 className="mt-2 sm:mt-3 font-serif text-xs sm:text-sm md:text-base text-charcoal tracking-wide">
+                    {category.name}
+                  </h3>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Right button */}
+          <button
+            onClick={() => scrollCategories('right')}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white/80 hover:bg-white text-gold-600 rounded-full p-2 shadow-md transition disabled:opacity-50"
+            aria-label="Next categories"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </section>
 
-      {/* ========== DYNAMIC CATEGORY SECTIONS ========== */}
+      {/* ========== DYNAMIC CATEGORY SECTIONS (Products) ========== */}
       <div className="space-y-16 sm:space-y-20">
         {categories.map(category => {
           const products = categoryProducts[category.id] || [];
-          // If products is not an array or empty, skip this category
           if (!Array.isArray(products) || products.length === 0) return null;
 
           return (
@@ -168,7 +231,6 @@ export default function Home() {
                 </Link>
               </div>
 
-              {/* Product grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5 md:gap-6">
                 {products.map(product => {
                   const assets = product.product_assets || [];
